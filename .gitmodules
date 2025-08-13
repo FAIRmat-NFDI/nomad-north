@@ -1,0 +1,3 @@
+[submodule "dockerspawner"]
+	path = dockerspawner
+	url = https://github.com/jupyterhub/dockerspawner.git
