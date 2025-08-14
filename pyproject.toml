@@ -1,0 +1,10 @@
+[project]
+name = "nomad-north"
+description = "Repository to build jupyterhub image for NORTH"
+version = "0.1"
+readme = "README.md"
+license = { file = "LICENSE" }
+dependencies = []
+
+[project.urls]
+Homepage = "https://github.com/FAIRmat-NFDI/nomad-north"
