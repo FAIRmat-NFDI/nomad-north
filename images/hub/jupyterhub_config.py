@@ -143,9 +143,11 @@ class NORTHSpawner(DockerSpawner):
 # Loding the profile list from file
 with open("profile_list.yaml") as stream:
     try:
-        NORTHSpawner.profile_list = yaml.safe_load(stream)
+        config = yaml.safe_load(stream)
     except yaml.YAMLError as exc:
         logging.warning(exc)
+
+    NORTHSpawner.profile_list = config.get("profile_list", [])
 
 
 
