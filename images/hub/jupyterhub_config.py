@@ -1,65 +1,62 @@
-# Configuration file for JupyterHub
-
-
-# import asyncio
-import copy
-# import ipaddress
-# import os
-# import re
-# import string
-# import sys
-# import warnings
-# from functools import partial
-from typing import Optional, Tuple, Type
-# from urllib.parse import urlparse
-
-import logging
-import jupyterhub
-
-from tornado.httputil import url_concat
-from jupyterhub.utils import url_path_join
-from urllib.parse import parse_qsl
-
-from jinja2 import ChoiceLoader, Environment, FileSystemLoader, PackageLoader
-# from jupyterhub.spawner import Spawner
-# from jupyterhub.traitlets import Callable, Command
-# from jupyterhub.utils import exponential_backoff, maybe_future
-# from kubernetes_asyncio import client
-# from kubernetes_asyncio.client.rest import ApiException
-# from slugify import slugify
-# from traitlets import (
-#     Bool,
-#     Dict,
-#     Enum,
-#     Integer,
-#     List,
-#     Unicode,
-#     Union,
-#     default,
-#     observe,
-#     validate,
-# )
-#
-# from . import __version__
-# from .clients import load_config, shared_client
-# from .objects import (
-#     make_namespace,
-#     make_owner_reference,
-#     make_pod,
-#     make_pvc,
-#     make_secret,
-#     make_service,
-# )
-# from .reflector import ResourceReflector
-# from .slugs import escape_slug, is_valid_label, multi_slug, safe_slug
-# from .utils import recursive_format, recursive_update
-
 import os
 import yaml
+import logging
+
+from functools import lru_cache
+
+from tornado import web
+from tornado.httputil import url_concat
+from urllib.parse import parse_qsl
+from jinja2 import Environment, FileSystemLoader
 
 from dockerspawner import DockerSpawner
+from jupyterhub.utils import url_path_join
 
-c = get_config()  # noqa: F821
+c = get_config()  # type: ignore # noqa: F821
+
+
+@lru_cache
+def _load_value_file():
+    """Load the config values from file(s)"""
+
+    path = "profile_list.yaml"
+
+    if not os.path.exists(path):
+        print(f"No config at {path}")
+        return {}
+
+    print(f"Loading {path}")
+    with open(path) as f:
+        try:
+            cfg = yaml.safe_load(f)
+        except yaml.YAMLError as exc:
+            logging.warning(exc)
+
+    return cfg
+
+    NORTHSpawner.profile_list = config.get("profile_list", [])
+
+
+def get_value(key, default=None):
+    """
+    Find a config item of a given name & return it
+
+    Parses everything as YAML, so lists and dicts are available too
+
+    get_config("a.b.c") returns config['a']['b']['c']
+    """
+    value = _load_value_file()
+    # resolve path in yaml
+    for level in key.split("."):
+        if not isinstance(value, dict):
+            # a parent is a scalar or null,
+            # can't resolve full path
+            return default
+        if level not in value:
+            return default
+        else:
+            value = value[level]
+    return value
 
 
 class NORTHSpawner(DockerSpawner):
@@ -67,9 +64,15 @@ class NORTHSpawner(DockerSpawner):
     profile_list = None
 
     def _options_form_default(self):
+        self.log.info(
+            "!!!!!!!!!!!!!!!!!! _options_form_default !!!!!!!!!!!!!!!!!")
 
         if not self.profile_list:
-            return ""
+            return ''
+
+        # Do not show forms for named servers
+        if self.name:
+            return ''
 
         loader = FileSystemLoader('/srv/jupyterhub/templates')
         env = Environment(loader=loader)
@@ -80,7 +83,6 @@ class NORTHSpawner(DockerSpawner):
         profile_form_template = env.get_template("form.html")
 
         return profile_form_template.render(profile_list=self.profile_list)
-
 
     def options_from_form(self, formdata):
         """
@@ -95,29 +97,35 @@ class NORTHSpawner(DockerSpawner):
             user_options (dict): the selected profile in the user_options form,
                 e.g. ``{"profile": "cpus-8"}``
         """
+        self.log.info("!!!!!!!!!!!!!!!!!! options_from_form !!!!!!!!!!!!!!!!!")
+
         options = {}
-        self.log.info(formdata)
+        # self.log.info(formdata)
 
         profile_slug = formdata.get("profile", [None])[0]
 
         if profile_slug:
             options["profile"] = profile_slug
 
-        self.log.info(f"Generating options: {options}")
+        # self.log.info(f"Generating options: {options}")
 
         return options
 
-    def load_user_options(self, options):
-        self.log.info(f"load options: {options}")
+#     def load_user_options(self, options):
+#         self.log.info(f"load options: {options}")
+#
+#         profile = self._get_profile(options["profile"])
+#         self.log.info(f"load profile: {profile}")
+#
+#         image = profile["dockerspawner_override"]["image"]
+#         if image:
+#             self.log.info(f"Loading image {image}")
+#             self.image = image
 
-        profile = self._get_profile(options["profile"])
-        self.log.info(f"load profile: {profile}")
-
-        image = profile.get("image")
-        if image:
-            self.log.info(f"Loading image {image}")
-            self.image = image
-
+    def run_options_from_form(self, form_options):
+        self.log.info(
+            "!!!!!!!!!!!!!!!!!!!!!!l run_options_from_form !!!!!!!!!!!!!!!!!!!!!!")
+        print(form_options)
 
     def _get_profile(self, slug: str):
         """
@@ -139,6 +147,17 @@ class NORTHSpawner(DockerSpawner):
             % (slug, ', '.join(p['slug'] for p in self.profile_list))
         )
 
+    @staticmethod
+    def auth_state_hook(spawner, auth_state):
+        spawner.log.info(
+            f"!!!!!!!!!!!!!!!!!!!!!!l auth_state_hook ({spawner.name}) !!!!!!!!!!!!!!!!!!!!!!")
+        spawner.log.info(auth_state)
+
+        if not spawner.name:
+            return
+
+
+c.Spawner.auth_state_hook = "NORTHSpawner.auth_state_hook"
 
 # Loding the profile list from file
 with open("profile_list.yaml") as stream:
@@ -150,36 +169,18 @@ with open("profile_list.yaml") as stream:
     NORTHSpawner.profile_list = config.get("profile_list", [])
 
 
+def my_hook(spawner):
+    spawner.log.info("!!!!!!!!!!!!!!!!! pre_spawn_hook !!!!!!!!!!!!!!!!!")
+    if spawner.name:
+        if spawner.name not in [p['slug'] for p in spawner.profile_list]:
+            # spawner.remove_object()
+            raise web.HTTPError(403, "This profile is not allowed")
 
-options_form_tpl = """
-<label for="image">Image</label>
-<input name="image" class="form-control" placeholder="the image to launch (default: {default_image})"></input>
-"""
-
-
-def get_options_form(spawner):
-    return options_form_tpl.format(default_image=spawner.image)
-
-
-# c.DockerSpawner.options_form = get_options_form
+        spawner.image = spawner._get_profile(
+            spawner.name)['dockerspawner_override']['image']
 
 
-
-class CustomDockerSpawner(DockerSpawner):
-    def options_from_form(self, formdata):
-        options = {}
-        image_form_list = formdata.get("image", [])
-        if image_form_list and image_form_list[0]:
-            options["image"] = image_form_list[0].strip()
-            self.log.info(f"User selected image: {options['image']}")
-        return options
-
-    def load_user_options(self, options):
-        image = options.get("image")
-        if image:
-            self.log.info(f"Loading image {image}")
-            self.image = image
-
+c.Spawner.pre_spawn_hook = my_hook
 
 
 # We rely on environment variables to configure JupyterHub so that we
@@ -188,7 +189,6 @@ class CustomDockerSpawner(DockerSpawner):
 
 # Spawn single-user servers as Docker containers
 # c.JupyterHub.spawner_class = "dockerspawner.DockerSpawner"
-# c.JupyterHub.spawner_class = CustomDockerSpawner
 c.JupyterHub.spawner_class = NORTHSpawner
 
 # Spawn containers from this image
@@ -227,21 +227,12 @@ c.JupyterHub.cookie_secret_file = "/data/jupyterhub_cookie_secret"
 c.JupyterHub.db_url = "sqlite:////data/jupyterhub.sqlite"
 
 
-
-
-#
-# c.DockerSpawner.allowed_images = {
-#     "tutorial-query-nomad-archive": "gitlab-registry.mpcdf.mpg.de/nomad-lab/ai-toolkit/tutorial-query-nomad-archive:refatoring",
-#     "tutorial-dos-similarity-search": "gitlab-registry.mpcdf.mpg.de/nomad-lab/ai-toolkit/tutorial-dos-similarity-search:updates",
-# }
-
-
 # Authentication
 c.JupyterHub.authenticator_class = "generic-oauth"
 
 # OAuth2 application info
 # -----------------------
-c.GenericOAuthenticator.oauth_callback_url = "http://localhost:9000/hub/oauth_callback"
+c.GenericOAuthenticator.oauth_callback_url = "http://localhost:9000/fairdi/nomad/latest/north/hub/oauth_callback"
 c.GenericOAuthenticator.client_id = "nomad_public"
 c.GenericOAuthenticator.client_secret = ""
 
@@ -273,6 +264,7 @@ c.GenericOAuthenticator.admin_users = {"test"}
 
 
 c.GenericOAuthenticator.login_service = "Keycloak"
+c.GenericOAuthenticator.auto_login = True
 
 
 #     config:
@@ -292,7 +284,7 @@ c.GenericOAuthenticator.login_service = "Keycloak"
 #   singleuser:
 #     podNameTemplate: "nomad-prod-staging-north-{username}--{servername}"
 
-
+c.JupyterHub.base_url = "/fairdi/nomad/latest/north/"
 c.JupyterHub.hub_ip = "0.0.0.0"  # listen on all interfaces
 c.JupyterHub.hub_connect_ip = (
     "hub"  # IP as seen on the docker network. Can also be a hostname.
@@ -300,10 +292,8 @@ c.JupyterHub.hub_connect_ip = (
 
 c.JupyterHub.allow_named_servers = True
 
-
 # c.JupyterHub.template_paths = ['/srv/jupyterhub/templates']
-c.JupyterHub.logo_file = "/srv/jupyterhub/logo/fairmat_logo.svg"
-
+c.JupyterHub.logo_file = "/srv/jupyterhub/logo/nomad_logo.svg"
 
 
 async def user_redirect_hook(path, request, user, base_url):
