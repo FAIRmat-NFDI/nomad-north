@@ -191,36 +191,9 @@ c.Spawner.pre_spawn_hook = my_hook
 # c.JupyterHub.spawner_class = "dockerspawner.DockerSpawner"
 c.JupyterHub.spawner_class = NORTHSpawner
 
-# Spawn containers from this image
-# c.DockerSpawner.image = os.environ["DOCKER_NOTEBOOK_IMAGE"]
-
-# For debugging arguments passed to spawned containers
-c.DockerSpawner.debug = True
-
 # User containers will access hub by container name on the Docker network
 # c.JupyterHub.hub_ip = "nomad_north"
-# c.JupyterHub.hub_port = 8080
-
-c.JupyterHub.port = 9000
-
-# Connect containers to this Docker network
-network_name = os.environ["DOCKER_NETWORK_NAME"]
-c.DockerSpawner.use_internal_ip = True
-c.DockerSpawner.network_name = network_name
-
-# Explicitly set notebook directory because we'll be mounting a volume to it.
-# Most `jupyter/docker-stacks` *-notebook images run the Notebook server as
-# user `jovyan`, and set the notebook directory to `/home/jovyan/work`.
-# We follow the same convention.
-# notebook_dir = os.environ.get("DOCKER_NOTEBOOK_DIR", )
-# c.DockerSpawner.notebook_dir = notebook_dir
-
-# Remove containers once they are stopped
-c.DockerSpawner.remove = True
-
-# Mount the real user's Docker volume on the host to the notebook user's
-# notebook directory in the container
-c.DockerSpawner.volumes = {"jupyterhub-user-{username}": "/home/jovyan/work"}
+c.JupyterHub.port = get_value("north.hub_port", 9000)
 
 # Persist hub data on volume mounted inside container
 c.JupyterHub.cookie_secret_file = "/data/jupyterhub_cookie_secret"
@@ -230,18 +203,27 @@ c.JupyterHub.db_url = "sqlite:////data/jupyterhub.sqlite"
 # Authentication
 c.JupyterHub.authenticator_class = "generic-oauth"
 
+# Authorization
+# -------------
+c.Authenticator.allow_all = get_value("hub.config.Authenticator.allow_all")
+c.Authenticator.admin_users = get_value("hub.config.Authenticator.admin_users")
+c.Authenticator.auto_login = get_value("hub.config.Authenticator.auto_login")
+c.Authenticator.enable_auth_state = get_value("hub.config.Authenticator.enable_auth_state")
+
+
 # OAuth2 application info
 # -----------------------
-c.GenericOAuthenticator.oauth_callback_url = "http://localhost:9000/fairdi/nomad/latest/north/hub/oauth_callback"
-c.GenericOAuthenticator.client_id = "nomad_public"
-c.GenericOAuthenticator.client_secret = ""
+c.GenericOAuthenticator.oauth_callback_url = get_value("hub.config.GenericOAuthenticator.oauth_callback_url")
+# defined by OAUTH_CLIENT_ID and OAUTH_CLIENT_SECRET
+# c.GenericOAuthenticator.client_id = get_value("hub.GenericOAuthenticator.client_id")
+# c.GenericOAuthenticator.client_secret = ""
 
 # Identity provider info
 # ----------------------
 # https://nomad-lab.eu/fairdi/keycloak/auth/realms/fairdi_nomad_test/.well-known/openid-configuration
-c.GenericOAuthenticator.authorize_url = "https://nomad-lab.eu/fairdi/keycloak/auth/realms/fairdi_nomad_test/protocol/openid-connect/auth"
-c.GenericOAuthenticator.token_url = "https://nomad-lab.eu/fairdi/keycloak/auth/realms/fairdi_nomad_test/protocol/openid-connect/token"
-c.GenericOAuthenticator.userdata_url = "https://nomad-lab.eu/fairdi/keycloak/auth/realms/fairdi_nomad_test/protocol/openid-connect/userinfo"
+c.GenericOAuthenticator.authorize_url = get_value("hub.config.GenericOAuthenticator.authorize_url")
+c.GenericOAuthenticator.token_url = get_value("hub.config.GenericOAuthenticator.token_url")
+c.GenericOAuthenticator.userdata_url = get_value("hub.config.GenericOAuthenticator.userdata_url")
 
 # What we request about the user
 # ------------------------------
@@ -253,38 +235,13 @@ c.GenericOAuthenticator.userdata_url = "https://nomad-lab.eu/fairdi/keycloak/aut
 # we should set the username based on the "email" key in the response, and read
 # group membership from the "groups" key in the response.
 #
-c.GenericOAuthenticator.scope = ["openid", "email"]
-c.GenericOAuthenticator.username_claim = "preferred_username"
-# c.GenericOAuthenticator.auth_state_groups_key = "oauth_user.groups"
-
-# Authorization
-# -------------
-c.GenericOAuthenticator.allow_all = True
-c.GenericOAuthenticator.admin_users = {"test"}
+c.GenericOAuthenticator.scope = get_value("hub.config.GenericOAuthenticator.scope")
+c.GenericOAuthenticator.username_claim = get_value("hub.config.GenericOAuthenticator.username_key")
+c.GenericOAuthenticator.login_service = get_value("hub.config.GenericOAuthenticator.login_service")
 
 
-c.GenericOAuthenticator.login_service = "Keycloak"
-c.GenericOAuthenticator.auto_login = True
 
-
-#     config:
-#       Authenticator:
-#         auto_login: true
-#         enable_auth_state: true
-#         username_key: preferred_username
-#         userdata_params:
-#           state: state
-# jupyterhub:
-#   fullnameOverride: "nomad-prod-staging-north"
-#   hub:
-#     baseUrl: "/prod/v1/staging/north"
-#     config:
-#       GenericOAuthenticator:
-#         oauth_callback_url: https://nomad-lab.eu/prod/v1/staging/north/hub/oauth_callback
-#   singleuser:
-#     podNameTemplate: "nomad-prod-staging-north-{username}--{servername}"
-
-c.JupyterHub.base_url = "/fairdi/nomad/latest/north/"
+c.JupyterHub.base_url = get_value("hub.base_url")
 c.JupyterHub.hub_ip = "0.0.0.0"  # listen on all interfaces
 c.JupyterHub.hub_connect_ip = (
     "hub"  # IP as seen on the docker network. Can also be a hostname.
@@ -383,3 +340,38 @@ c.JupyterHub.user_redirect_hook = user_redirect_hook
 #
 #
 #
+
+# Spawn containers from this image
+# c.DockerSpawner.image = os.environ["DOCKER_NOTEBOOK_IMAGE"]
+
+# For debugging arguments passed to spawned containers
+c.DockerSpawner.debug = True
+
+
+# Remove containers once they are stopped
+c.DockerSpawner.remove = True
+
+# Prefix for container names. See name_template for full container name for a particular
+# user's server. (Default: 'jupyter')
+c.DockerSpawner.prefix = 'nomad_oasis_north'
+
+# Connect containers to this Docker network
+c.DockerSpawner.use_internal_ip = True
+c.DockerSpawner.network_name = get_value("nomad.north_docker_network")
+
+# Explicitly set notebook directory because we'll be mounting a volume to it.
+# Most `jupyter/docker-stacks` *-notebook images run the Notebook server as
+# user `jovyan`, and set the notebook directory to `/home/jovyan/work`.
+# We follow the same convention.
+# notebook_dir = os.environ.get("DOCKER_NOTEBOOK_DIR", )
+# c.DockerSpawner.notebook_dir = notebook_dir
+
+# Mount the real user's Docker volume on the host to the notebook user's
+# notebook directory in the container
+c.DockerSpawner.volumes = {"jupyterhub-user-{username}": "/home/jovyan/work"}
+
+
+# Fixing: Unexpected error: "Gateway Time-out (504)". Please try again and let us know, if this error keeps happening.
+c.DockerSpawner.http_timeout = 5 * 60  # in seconds
+c.DockerSpawner.start_timeout = 10 * 60  # in seconds
+
