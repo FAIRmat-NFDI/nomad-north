@@ -180,6 +180,33 @@ def my_hook(spawner):
             spawner.name)['dockerspawner_override']['image']
 
 
+
+#     keycloak_api_url = get_value("north.hub_port", 9000)
+#
+    # nomad_api_url = get_value("nomad.api_url")
+    nomad_api_url = "http://app:8000/fairdi/nomad/latest/api"
+    # nomad_api_url = "http://172.19.0.1:8000/fairdi/nomad/latest/api"
+    # nomad_api_url = "http://127.0.0.1:8000/fairdi/nomad/latest/api"
+
+    spawner.log.info(f"nomad_api_url: {nomad_api_url}/v1/north/mounts/{spawner.name}")
+
+    import requests
+
+
+    # hub_api_headers = {
+    #     'Authorization': f'Bearer {config.north.hub_service_api_token}'
+    # }
+
+    # response = requests.get(f"{nomad_api_url}/v1/north/mounts/{spawner.name}", headers=hub_api_headers)
+    response = requests.get(f"{nomad_api_url}/v1/north/mounts/{spawner.name}")
+
+    spawner.log.info(response.status_code)
+    spawner.log.info(response.json())
+
+
+
+
+
 c.Spawner.pre_spawn_hook = my_hook
 
 
@@ -244,7 +271,7 @@ c.GenericOAuthenticator.login_service = get_value("hub.config.GenericOAuthentica
 c.JupyterHub.base_url = get_value("hub.base_url")
 c.JupyterHub.hub_ip = "0.0.0.0"  # listen on all interfaces
 c.JupyterHub.hub_connect_ip = (
-    "hub"  # IP as seen on the docker network. Can also be a hostname.
+    "north"  # IP as seen on the docker network. Can also be a hostname.
 )
 
 c.JupyterHub.allow_named_servers = True

@@ -1,4 +1,4 @@
-ARG JUPYTERHUB_VERSION=latest
+ARG JUPYTERHUB_VERSION=5.4.3
 FROM quay.io/jupyterhub/jupyterhub:$JUPYTERHUB_VERSION
 
 RUN python3 -m pip install --no-cache \
