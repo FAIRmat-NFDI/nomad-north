@@ -15,6 +15,8 @@ from jupyterhub.utils import url_path_join
 c = get_config()  # type: ignore # noqa: F821
 
 
+# TODO read profile list from nomad's api
+
 @lru_cache
 def _load_value_file():
     """Load the config values from file(s)"""
