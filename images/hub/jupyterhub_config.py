@@ -2,8 +2,6 @@ import os
 import yaml
 import logging
 
-from functools import lru_cache
-
 from tornado import web
 from tornado.httputil import url_concat
 from urllib.parse import parse_qsl
@@ -17,48 +15,49 @@ c = get_config()  # type: ignore # noqa: F821
 
 # TODO read profile list from nomad's api
 
-@lru_cache
-def _load_value_file():
-    """Load the config values from file(s)"""
 
-    path = "profile_list.yaml"
-
-    if not os.path.exists(path):
-        print(f"No config at {path}")
-        return {}
-
-    print(f"Loading {path}")
-    with open(path) as f:
-        try:
-            cfg = yaml.safe_load(f)
-        except yaml.YAMLError as exc:
-            logging.warning(exc)
-
-    return cfg
-
-    NORTHSpawner.profile_list = config.get("profile_list", [])
-
-
-def get_value(key, default=None):
-    """
-    Find a config item of a given name & return it
-
-    Parses everything as YAML, so lists and dicts are available too
-
-    get_config("a.b.c") returns config['a']['b']['c']
-    """
-    value = _load_value_file()
-    # resolve path in yaml
-    for level in key.split("."):
-        if not isinstance(value, dict):
-            # a parent is a scalar or null,
-            # can't resolve full path
-            return default
-        if level not in value:
-            return default
-        else:
-            value = value[level]
-    return value
+# @lru_cache
+# def _load_value_file():
+#     """Load the config values from file(s)"""
+#
+#     path = "profile_list.yaml"
+#
+#     if not os.path.exists(path):
+#         print(f"No config at {path}")
+#         return {}
+#
+#     print(f"Loading {path}")
+#     with open(path) as f:
+#         try:
+#             cfg = yaml.safe_load(f)
+#         except yaml.YAMLError as exc:
+#             logging.warning(exc)
+#
+#     return cfg
+#
+#     NORTHSpawner.profile_list = config.get("profile_list", [])
+#
+#
+# def get_value(key, default=None):
+#     """
+#     Find a config item of a given name & return it
+#
+#     Parses everything as YAML, so lists and dicts are available too
+#
+#     get_config("a.b.c") returns config['a']['b']['c']
+#     """
+#     value = _load_value_file()
+#     # resolve path in yaml
+#     for level in key.split("."):
+#         if not isinstance(value, dict):
+#             # a parent is a scalar or null,
+#             # can't resolve full path
+#             return default
+#         if level not in value:
+#             return default
+#         else:
+#             value = value[level]
+#     return value
 
 
 class NORTHSpawner(DockerSpawner):
@@ -159,16 +158,14 @@ class NORTHSpawner(DockerSpawner):
             return
 
 
-c.Spawner.auth_state_hook = "NORTHSpawner.auth_state_hook"
-
-# Loding the profile list from file
-with open("profile_list.yaml") as stream:
-    try:
-        config = yaml.safe_load(stream)
-    except yaml.YAMLError as exc:
-        logging.warning(exc)
-
-    NORTHSpawner.profile_list = config.get("profile_list", [])
+# # Loding the profile list from file
+# with open("profile_list.yaml") as stream:
+#     try:
+#         config = yaml.safe_load(stream)
+#     except yaml.YAMLError as exc:
+#         logging.warning(exc)
+#
+#     NORTHSpawner.profile_list = config.get("profile_list", [])
 
 
 def my_hook(spawner):
@@ -181,19 +178,16 @@ def my_hook(spawner):
         spawner.image = spawner._get_profile(
             spawner.name)['dockerspawner_override']['image']
 
+    # keycloak_api_url = get_value("north.hub_port", 9000)
 
-
-#     keycloak_api_url = get_value("north.hub_port", 9000)
-#
-    # nomad_api_url = get_value("nomad.api_url")
-    nomad_api_url = "http://app:8000/fairdi/nomad/latest/api"
+    nomad_api_url = os.environ.get("NOMAD_API_URL", "http://app:8000/api/v1")
     # nomad_api_url = "http://172.19.0.1:8000/fairdi/nomad/latest/api"
     # nomad_api_url = "http://127.0.0.1:8000/fairdi/nomad/latest/api"
 
-    spawner.log.info(f"nomad_api_url: {nomad_api_url}/v1/north/mounts/{spawner.name}")
+    spawner.log.info(
+        f"nomad_api_url: {nomad_api_url}/v1/north/mounts/{spawner.name}")
 
     import requests
-
 
     # hub_api_headers = {
     #     'Authorization': f'Bearer {config.north.hub_service_api_token}'
@@ -204,82 +198,6 @@ def my_hook(spawner):
 
     spawner.log.info(response.status_code)
     spawner.log.info(response.json())
-
-
-
-
-
-c.Spawner.pre_spawn_hook = my_hook
-
-
-# We rely on environment variables to configure JupyterHub so that we
-# avoid having to rebuild the JupyterHub container every time we change a
-# configuration parameter.
-
-# Spawn single-user servers as Docker containers
-# c.JupyterHub.spawner_class = "dockerspawner.DockerSpawner"
-c.JupyterHub.spawner_class = NORTHSpawner
-
-# User containers will access hub by container name on the Docker network
-# c.JupyterHub.hub_ip = "nomad_north"
-c.JupyterHub.port = get_value("north.hub_port", 9000)
-
-# Persist hub data on volume mounted inside container
-c.JupyterHub.cookie_secret_file = "/data/jupyterhub_cookie_secret"
-c.JupyterHub.db_url = "sqlite:////data/jupyterhub.sqlite"
-
-
-# Authentication
-c.JupyterHub.authenticator_class = "generic-oauth"
-
-# Authorization
-# -------------
-c.Authenticator.allow_all = get_value("hub.config.Authenticator.allow_all")
-c.Authenticator.admin_users = get_value("hub.config.Authenticator.admin_users")
-c.Authenticator.auto_login = get_value("hub.config.Authenticator.auto_login")
-c.Authenticator.enable_auth_state = get_value("hub.config.Authenticator.enable_auth_state")
-
-
-# OAuth2 application info
-# -----------------------
-c.GenericOAuthenticator.oauth_callback_url = get_value("hub.config.GenericOAuthenticator.oauth_callback_url")
-# defined by OAUTH_CLIENT_ID and OAUTH_CLIENT_SECRET
-# c.GenericOAuthenticator.client_id = get_value("hub.GenericOAuthenticator.client_id")
-# c.GenericOAuthenticator.client_secret = ""
-
-# Identity provider info
-# ----------------------
-# https://nomad-lab.eu/fairdi/keycloak/auth/realms/fairdi_nomad_test/.well-known/openid-configuration
-c.GenericOAuthenticator.authorize_url = get_value("hub.config.GenericOAuthenticator.authorize_url")
-c.GenericOAuthenticator.token_url = get_value("hub.config.GenericOAuthenticator.token_url")
-c.GenericOAuthenticator.userdata_url = get_value("hub.config.GenericOAuthenticator.userdata_url")
-
-# What we request about the user
-# ------------------------------
-# scope represents requested information about the user, and since we configure
-# this against an OIDC based identity provider, we should request "openid" at
-# least.
-#
-# In this example we include "email" and "groups" as well, and then declare that
-# we should set the username based on the "email" key in the response, and read
-# group membership from the "groups" key in the response.
-#
-c.GenericOAuthenticator.scope = get_value("hub.config.GenericOAuthenticator.scope")
-c.GenericOAuthenticator.username_claim = get_value("hub.config.GenericOAuthenticator.username_key")
-c.GenericOAuthenticator.login_service = get_value("hub.config.GenericOAuthenticator.login_service")
-
-
-
-c.JupyterHub.base_url = get_value("hub.base_url")
-c.JupyterHub.hub_ip = "0.0.0.0"  # listen on all interfaces
-c.JupyterHub.hub_connect_ip = (
-    "north"  # IP as seen on the docker network. Can also be a hostname.
-)
-
-c.JupyterHub.allow_named_servers = True
-
-# c.JupyterHub.template_paths = ['/srv/jupyterhub/templates']
-c.JupyterHub.logo_file = "/srv/jupyterhub/logo/nomad_logo.svg"
 
 
 async def user_redirect_hook(path, request, user, base_url):
@@ -306,7 +224,77 @@ async def user_redirect_hook(path, request, user, base_url):
     return url
 
 
+# Hub configuration
+# -----------------
+# We rely on environment variables to configure JupyterHub so that we
+# avoid having to rebuild the JupyterHub container every time we change a
+# configuration parameter.
+
+
+# User containers will access hub by container name on the Docker network
+# c.JupyterHub.hub_ip = os.environ.get("HUB_IP", "localhost")
+# c.JupyterHub.hub_connect_ip = "north"
+c.JupyterHub.port = os.environ.get("HUB_PORT", 9000)
+c.JupyterHub.base_url = os.environ.get("BASE_URL", "/nomad-oasis/north/")
+# By default listen on all interfaces to be accessible from outside the container
+c.JupyterHub.hub_ip = os.environ.get("HUB_IP", "0.0.0.0")
+# IP as seen on the docker network. Can also be a hostname.
+c.JupyterHub.hub_connect_ip = os.environ.get("HUB_CONNECT_IP", "north")
+
+
+# Persist hub data on volume mounted inside container
+c.JupyterHub.cookie_secret_file = "/data/jupyterhub_cookie_secret"
+c.JupyterHub.db_url = "sqlite:////data/jupyterhub.sqlite"
+
+
+c.JupyterHub.allow_named_servers = True
+c.JupyterHub.shutdown_on_logout = True
+
+# c.JupyterHub.template_paths = ['/srv/jupyterhub/templates']
+c.JupyterHub.logo_file = "/srv/jupyterhub/logo/nomad_logo.svg"
+
+
+# Authentication
+# -------------
+
+c.JupyterHub.authenticator_class = "generic-oauth"
 c.JupyterHub.user_redirect_hook = user_redirect_hook
+
+c.Authenticator.allow_all = True
+c.Authenticator.auto_login = True
+c.Authenticator.enable_auth_state = True
+c.Authenticator.admin_users = os.environ.get("ADMIN_USERS", "").split(",")
+
+# What we request about the user
+# ------------------------------
+# scope represents requested information about the user, and since we configure
+# this against an OIDC based identity provider, we should request "openid" at
+# least.
+
+c.GenericOAuthenticator.login_service = "keycloak"
+c.GenericOAuthenticator.scope = ["openid", "profile"]
+c.GenericOAuthenticator.username_claim = "preferred_username"
+
+
+# OAuth2 application info
+# -----------------------
+# Note: callback_url should be an url accessible from "outside"
+c.GenericOAuthenticator.oauth_callback_url = os.environ.get(
+    "HUB_OAUTH_CALLBACK_URL", "http://localhost:9000/nomad-oasis/north/hub/oauth_callback")
+c.GenericOAuthenticator.client_id = os.environ.get("OAUTH_CLIENT_ID", "public")
+c.GenericOAuthenticator.client_secret = os.environ.get(
+    "OAUTH_CLIENT_SECRET", "")
+
+# Identity provider info
+# ----------------------
+# https://nomad-lab.eu/fairdi/keycloak/auth/realms/fairdi_nomad_test/.well-known/openid-configuration
+c.GenericOAuthenticator.userdata_params = {"state": "state"}
+c.GenericOAuthenticator.authorize_url = os.environ.get(
+    "HUB_AUTHORIZE_URL", "https://nomad-lab.eu/fairdi/keycloak/auth/realms/fairdi_nomad_test/protocol/openid-connect/auth")
+c.GenericOAuthenticator.token_url = os.environ.get(
+    "HUB_TOKEN_URL", "https://nomad-lab.eu/fairdi/keycloak/auth/realms/fairdi_nomad_test/protocol/openid-connect/token")
+c.GenericOAuthenticator.userdata_url = os.environ.get(
+    "HUB_USERDATA_URL", "https://nomad-lab.eu/fairdi/keycloak/auth/realms/fairdi_nomad_test/protocol/openid-connect/userinfo")
 
 
 #     02-custom-spawner.py: |
@@ -370,6 +358,13 @@ c.JupyterHub.user_redirect_hook = user_redirect_hook
 #
 #
 
+# Spawn single-user servers as Docker containers
+# c.JupyterHub.spawner_class = "dockerspawner.DockerSpawner"
+c.JupyterHub.spawner_class = NORTHSpawner
+c.Spawner.pre_spawn_hook = my_hook
+c.Spawner.auth_state_hook = "NORTHSpawner.auth_state_hook"
+
+
 # Spawn containers from this image
 # c.DockerSpawner.image = os.environ["DOCKER_NOTEBOOK_IMAGE"]
 
@@ -382,11 +377,13 @@ c.DockerSpawner.remove = True
 
 # Prefix for container names. See name_template for full container name for a particular
 # user's server. (Default: 'jupyter')
-c.DockerSpawner.prefix = 'nomad_oasis_north'
+c.DockerSpawner.prefix = os.environ.get(
+    "DOCKER_PREFIX", "nomad-oasis-north")
 
 # Connect containers to this Docker network
 c.DockerSpawner.use_internal_ip = True
-c.DockerSpawner.network_name = get_value("nomad.north_docker_network")
+c.DockerSpawner.network_name = os.environ.get(
+    "DOCKER_NETWORK", "nomad_oasis_network")
 
 # Explicitly set notebook directory because we'll be mounting a volume to it.
 # Most `jupyter/docker-stacks` *-notebook images run the Notebook server as
@@ -395,12 +392,12 @@ c.DockerSpawner.network_name = get_value("nomad.north_docker_network")
 # notebook_dir = os.environ.get("DOCKER_NOTEBOOK_DIR", )
 # c.DockerSpawner.notebook_dir = notebook_dir
 
-# Mount the real user's Docker volume on the host to the notebook user's
-# notebook directory in the container
-c.DockerSpawner.volumes = {"jupyterhub-user-{username}": "/home/jovyan/work"}
+# # Mount the real user's Docker volume on the host to the notebook user's
+# # notebook directory in the container
+# c.DockerSpawner.volumes = {"jupyterhub-user-{username}": "/home/jovyan/work"}
 
 
-# Fixing: Unexpected error: "Gateway Time-out (504)". Please try again and let us know, if this error keeps happening.
+# Fixing: Unexpected error: "Gateway Time-out (504)".
+# Please try again and let us know, if this error keeps happening.
 c.DockerSpawner.http_timeout = 5 * 60  # in seconds
 c.DockerSpawner.start_timeout = 10 * 60  # in seconds
-
