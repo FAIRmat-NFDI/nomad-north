@@ -1,4 +1,5 @@
 import os
+import requests
 import yaml
 import logging
 
@@ -6,15 +7,19 @@ from tornado import web
 from tornado.httputil import url_concat
 from urllib.parse import parse_qsl
 from jinja2 import Environment, FileSystemLoader
+from pydantic import BaseModel, Field
 
 from dockerspawner import DockerSpawner
 from jupyterhub.utils import url_path_join
 
 c = get_config()  # type: ignore # noqa: F821
 
+logger = logging.getLogger(__name__)
 
 # TODO read profile list from nomad's api
 
+
+# response = requests.get(f"{nomad_api_url}/v1/north/mounts/{spawner.name}", headers=hub_api_headers)
 
 # @lru_cache
 # def _load_value_file():
@@ -60,9 +65,40 @@ c = get_config()  # type: ignore # noqa: F821
 #     return value
 
 
+
+
+class Profile(BaseModel):
+    display_name: str = Field(..., description="Name of the profile")
+    default: bool = Field(False, description="Is this the default profile?")
+    description: str = Field(..., description="Description of the profile")
+    slug: str = Field(..., description="Slug for the profile")
+    image: str = Field(..., description="Docker image for the profile")
+    default_url: str = Field(
+        "/lab", description="Default URL to open when the profile is started")
+
+
+
+nomad_api_url = os.environ.get("NOMAD_API_URL", "http://app:8000/nomad-oasis/api/v1")
+
+api_url = f"{nomad_api_url}/north/tools/"
+response = requests.get(api_url)
+profile_list = []
+for tool in response.json()['data']:
+    profile_list.append(
+        Profile(
+            display_name=tool['name'],
+            description=tool['short_description'],
+            slug=tool['name'],
+            image=tool['image'],
+            default_url=tool['default_url']
+        )
+    )
+
+
+
 class NORTHSpawner(DockerSpawner):
 
-    profile_list = None
+    profile_list = profile_list
 
     def _options_form_default(self):
         self.log.info(
@@ -170,6 +206,9 @@ class NORTHSpawner(DockerSpawner):
 
 def my_hook(spawner):
     spawner.log.info("!!!!!!!!!!!!!!!!! pre_spawn_hook !!!!!!!!!!!!!!!!!")
+
+
+
     if spawner.name:
         if spawner.name not in [p['slug'] for p in spawner.profile_list]:
             # spawner.remove_object()
@@ -180,24 +219,28 @@ def my_hook(spawner):
 
     # keycloak_api_url = get_value("north.hub_port", 9000)
 
-    nomad_api_url = os.environ.get("NOMAD_API_URL", "http://app:8000/api/v1")
-    # nomad_api_url = "http://172.19.0.1:8000/fairdi/nomad/latest/api"
-    # nomad_api_url = "http://127.0.0.1:8000/fairdi/nomad/latest/api"
 
-    spawner.log.info(
-        f"nomad_api_url: {nomad_api_url}/v1/north/mounts/{spawner.name}")
 
-    import requests
+    nomad_api_url = os.environ.get("NOMAD_API_URL", "http://app:8000/nomad-oasis/api/v1")
+
+    api_url = f"{nomad_api_url}/north/tools/"
+    response = requests.get(api_url)
+    spawner.log.info(f"api_url: {api_url}")
+    spawner.log.info(response.status_code)
+    spawner.log.info(response.json())
+
+
+    api_url = f"{nomad_api_url}/north/mounts/{spawner.name}"
+    response = requests.get(api_url)
+    spawner.log.info(f"api_url: {api_url}")
+    spawner.log.info(response.status_code)
+    spawner.log.info(response.json())
+
 
     # hub_api_headers = {
     #     'Authorization': f'Bearer {config.north.hub_service_api_token}'
     # }
-
     # response = requests.get(f"{nomad_api_url}/v1/north/mounts/{spawner.name}", headers=hub_api_headers)
-    response = requests.get(f"{nomad_api_url}/v1/north/mounts/{spawner.name}")
-
-    spawner.log.info(response.status_code)
-    spawner.log.info(response.json())
 
 
 async def user_redirect_hook(path, request, user, base_url):
