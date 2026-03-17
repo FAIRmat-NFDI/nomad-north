@@ -96,6 +96,7 @@ for tool in response.json()['data']:
 
 
 
+
 class NORTHSpawner(DockerSpawner):
 
     profile_list = profile_list
@@ -175,13 +176,13 @@ class NORTHSpawner(DockerSpawner):
         """
 
         for profile in self.profile_list:
-            if profile['slug'] == slug:
+            if profile.slug == slug:
                 # return matching profile
                 return profile
 
         raise ValueError(
             "No such profile: %s. Options include: %s"
-            % (slug, ', '.join(p['slug'] for p in self.profile_list))
+            % (slug, ', '.join(p.slug for p in self.profile_list))
         )
 
     @staticmethod
@@ -207,15 +208,12 @@ class NORTHSpawner(DockerSpawner):
 def my_hook(spawner):
     spawner.log.info("!!!!!!!!!!!!!!!!! pre_spawn_hook !!!!!!!!!!!!!!!!!")
 
-
-
     if spawner.name:
-        if spawner.name not in [p['slug'] for p in spawner.profile_list]:
+        if spawner.name not in [p.slug for p in spawner.profile_list]:
             # spawner.remove_object()
             raise web.HTTPError(403, "This profile is not allowed")
 
-        spawner.image = spawner._get_profile(
-            spawner.name)['dockerspawner_override']['image']
+        spawner.image = spawner._get_profile(spawner.name).image
 
     # keycloak_api_url = get_value("north.hub_port", 9000)
 
@@ -228,6 +226,7 @@ def my_hook(spawner):
     spawner.log.info(f"api_url: {api_url}")
     spawner.log.info(response.status_code)
     spawner.log.info(response.json())
+    
 
 
     api_url = f"{nomad_api_url}/north/mounts/{spawner.name}"
