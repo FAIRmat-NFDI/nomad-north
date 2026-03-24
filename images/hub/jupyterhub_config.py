@@ -1,8 +1,9 @@
 import os
 import requests
-import yaml
 import logging
+import functools
 
+from traitlets import default
 from tornado import web
 from tornado.httputil import url_concat
 from urllib.parse import parse_qsl
@@ -15,55 +16,6 @@ from jupyterhub.utils import url_path_join
 c = get_config()  # type: ignore # noqa: F821
 
 logger = logging.getLogger(__name__)
-
-# TODO read profile list from nomad's api
-
-
-# response = requests.get(f"{nomad_api_url}/v1/north/mounts/{spawner.name}", headers=hub_api_headers)
-
-# @lru_cache
-# def _load_value_file():
-#     """Load the config values from file(s)"""
-#
-#     path = "profile_list.yaml"
-#
-#     if not os.path.exists(path):
-#         print(f"No config at {path}")
-#         return {}
-#
-#     print(f"Loading {path}")
-#     with open(path) as f:
-#         try:
-#             cfg = yaml.safe_load(f)
-#         except yaml.YAMLError as exc:
-#             logging.warning(exc)
-#
-#     return cfg
-#
-#     NORTHSpawner.profile_list = config.get("profile_list", [])
-#
-#
-# def get_value(key, default=None):
-#     """
-#     Find a config item of a given name & return it
-#
-#     Parses everything as YAML, so lists and dicts are available too
-#
-#     get_config("a.b.c") returns config['a']['b']['c']
-#     """
-#     value = _load_value_file()
-#     # resolve path in yaml
-#     for level in key.split("."):
-#         if not isinstance(value, dict):
-#             # a parent is a scalar or null,
-#             # can't resolve full path
-#             return default
-#         if level not in value:
-#             return default
-#         else:
-#             value = value[level]
-#     return value
-
 
 
 
@@ -78,32 +30,33 @@ class Profile(BaseModel):
 
 
 
-nomad_api_url = os.environ.get("NOMAD_API_URL", "http://app:8000/nomad-oasis/api/v1")
-
-api_url = f"{nomad_api_url}/north/tools/"
-response = requests.get(api_url)
-profile_list = []
-for tool in response.json()['data']:
-    profile_list.append(
-        Profile(
-            display_name=tool['name'],
-            description=tool['short_description'],
-            slug=tool['name'],
-            image=tool['image'],
-            default_url=tool['default_url']
-        )
-    )
-
-
-
-
 class NORTHSpawner(DockerSpawner):
 
-    profile_list = profile_list
+    nomad_api_url = os.environ.get("NOMAD_API_URL", "http://app:8000/nomad-oasis/api/v1")
+
+    @functools.cached_property
+    def profile_list(self):
+        api_url = f"{self.nomad_api_url}/north/tools/"
+        response = requests.get(api_url)
+        profile_list = []
+        for tool in response.json()['data']:
+            profile_list.append(
+                Profile(
+                    display_name=tool['name'],
+                    description=tool['short_description'],
+                    slug=tool['name'],
+                    image=tool['image'],
+                    default_url=tool['default_url']
+                )
+            )
+        return profile_list
+
 
     def _options_form_default(self):
-        self.log.info(
-            "!!!!!!!!!!!!!!!!!! _options_form_default !!!!!!!!!!!!!!!!!")
+        """Custom option form callable function to only show profiles
+        for the default server and not for the named servers.
+        """
+        self.log.info("!!!!!! _options_form_default !!!!!!")
 
         if not self.profile_list:
             return ''
@@ -123,8 +76,7 @@ class NORTHSpawner(DockerSpawner):
         return profile_form_template.render(profile_list=self.profile_list)
 
     def options_from_form(self, formdata):
-        """
-        Called by jupyterhub when processing a request to spawn a server, where
+        """Called by jupyterhub when processing a request to spawn a server, where
         the user either have submitted a POST request via a form or submitted a
         GET request with query parameters.
 
@@ -135,7 +87,7 @@ class NORTHSpawner(DockerSpawner):
             user_options (dict): the selected profile in the user_options form,
                 e.g. ``{"profile": "cpus-8"}``
         """
-        self.log.info("!!!!!!!!!!!!!!!!!! options_from_form !!!!!!!!!!!!!!!!!")
+        self.log.info("!!!!!! options_from_form !!!!!!")
 
         options = {}
         # self.log.info(formdata)
@@ -145,24 +97,13 @@ class NORTHSpawner(DockerSpawner):
         if profile_slug:
             options["profile"] = profile_slug
 
-        # self.log.info(f"Generating options: {options}")
 
         return options
 
-#     def load_user_options(self, options):
-#         self.log.info(f"load options: {options}")
-#
-#         profile = self._get_profile(options["profile"])
-#         self.log.info(f"load profile: {profile}")
-#
-#         image = profile["dockerspawner_override"]["image"]
-#         if image:
-#             self.log.info(f"Loading image {image}")
-#             self.image = image
 
     def run_options_from_form(self, form_options):
         self.log.info(
-            "!!!!!!!!!!!!!!!!!!!!!!l run_options_from_form !!!!!!!!!!!!!!!!!!!!!!")
+            "!!!!!!l run_options_from_form !!!!!!")
         print(form_options)
 
     def _get_profile(self, slug: str):
@@ -187,59 +128,45 @@ class NORTHSpawner(DockerSpawner):
 
     @staticmethod
     def auth_state_hook(spawner, auth_state):
-        spawner.log.info(
-            f"!!!!!!!!!!!!!!!!!!!!!!l auth_state_hook ({spawner.name}) !!!!!!!!!!!!!!!!!!!!!!")
-        spawner.log.info(auth_state)
+        spawner.log.info(f"!!!!!! auth_state_hook ({spawner.name}) !!!!!!")
 
         if not spawner.name:
             return
 
-
-# # Loding the profile list from file
-# with open("profile_list.yaml") as stream:
-#     try:
-#         config = yaml.safe_load(stream)
-#     except yaml.YAMLError as exc:
-#         logging.warning(exc)
-#
-#     NORTHSpawner.profile_list = config.get("profile_list", [])
-
-
-def my_hook(spawner):
-    spawner.log.info("!!!!!!!!!!!!!!!!! pre_spawn_hook !!!!!!!!!!!!!!!!!")
-
-    if spawner.name:
-        if spawner.name not in [p.slug for p in spawner.profile_list]:
-            # spawner.remove_object()
-            raise web.HTTPError(403, "This profile is not allowed")
-
-        spawner.image = spawner._get_profile(spawner.name).image
-
-    # keycloak_api_url = get_value("north.hub_port", 9000)
+        spawner.user_options["access_token"] = auth_state["access_token"]
 
 
 
-    nomad_api_url = os.environ.get("NOMAD_API_URL", "http://app:8000/nomad-oasis/api/v1")
+    @default('pre_spawn_hook')
+    def _pre_spawn_hook(spawner):
+        # spawner.log.info("!!!!!! pre_spawn_hook !!!!!!")
 
-    api_url = f"{nomad_api_url}/north/tools/"
-    response = requests.get(api_url)
-    spawner.log.info(f"api_url: {api_url}")
-    spawner.log.info(response.status_code)
-    spawner.log.info(response.json())
-    
+        if spawner.name:
+            if spawner.name not in [p.slug for p in spawner.profile_list]:
+                # spawner.remove_object()
+                raise web.HTTPError(403, "This profile is not allowed")
 
-
-    api_url = f"{nomad_api_url}/north/mounts/{spawner.name}"
-    response = requests.get(api_url)
-    spawner.log.info(f"api_url: {api_url}")
-    spawner.log.info(response.status_code)
-    spawner.log.info(response.json())
+            spawner.image = spawner._get_profile(spawner.name).image
 
 
-    # hub_api_headers = {
-    #     'Authorization': f'Bearer {config.north.hub_service_api_token}'
-    # }
-    # response = requests.get(f"{nomad_api_url}/v1/north/mounts/{spawner.name}", headers=hub_api_headers)
+        api_url = f"{spawner.nomad_api_url}/north/mounts/{spawner.name}"
+        api_headers = {"Authorization": f"Bearer {spawner.user_options.get('access_token')}"}
+
+        response = requests.get(api_url, headers=api_headers)
+        spawner.log.info(f"api_url: {api_url}")
+        spawner.log.info(response.status_code)
+        spawner.log.info(response.json())
+
+        mounts = []
+        for mount in response.json()['mounts']:
+            mounts.append({
+                'type': 'bind',
+                'source': mount['source'],
+                'target': mount['target'],
+                'read_only': mount['mode'] != 'rw'
+            })
+        spawner.mounts = mounts
+
 
 
 async def user_redirect_hook(path, request, user, base_url):
@@ -304,8 +231,30 @@ c.JupyterHub.user_redirect_hook = user_redirect_hook
 
 c.Authenticator.allow_all = True
 c.Authenticator.auto_login = True
+c.Authenticator.refresh_pre_spawn = True
 c.Authenticator.enable_auth_state = True
 c.Authenticator.admin_users = os.environ.get("ADMIN_USERS", "").split(",")
+
+# Users do not have permission to read their own auth state by default, but auth_state is where the access_token is stored.
+# https://oauthenticator.readthedocs.io/en/latest/how-to/refresh.html#refreshing-tokens-from-user-sessions
+c.JupyterHub.load_roles = [
+    {
+        "name": "user",
+        "scopes": [
+            "self",
+            "admin:auth_state!user",
+        ],
+    },
+    {
+        "name": "server",
+        "scopes": [
+            "users:activity!user",
+            "access:servers!server",
+            "admin:auth_state!user",
+        ],
+    },
+]
+
 
 # What we request about the user
 # ------------------------------
@@ -316,7 +265,6 @@ c.Authenticator.admin_users = os.environ.get("ADMIN_USERS", "").split(",")
 c.GenericOAuthenticator.login_service = "keycloak"
 c.GenericOAuthenticator.scope = ["openid", "profile"]
 c.GenericOAuthenticator.username_claim = "preferred_username"
-
 
 # OAuth2 application info
 # -----------------------
@@ -339,79 +287,13 @@ c.GenericOAuthenticator.userdata_url = os.environ.get(
     "HUB_USERDATA_URL", "https://nomad-lab.eu/fairdi/keycloak/auth/realms/fairdi_nomad_test/protocol/openid-connect/userinfo")
 
 
-#     02-custom-spawner.py: |
-#       import asyncio
-#       from kubespawner import KubeSpawner
-#       from traitlets import default
-#
-#       class CustomSpawner(KubeSpawner):
-#
-#         def __init__(self, *args, **kwargs):
-#           self.log.debug(f"CustomSpawner::__init__")
-#           self.log.debug(f"CustomSpawner::__init__ args: {args}")
-#           self.log.debug(f"CustomSpawner::__init__ kwargs: {kwargs}")
-#           super().__init__(*args, **kwargs)
-#
-#         async def start(self):
-#           """Start the user's pod"""
-#
-#           self.log.debug("CustomSpawner::start")
-#
-#           return (await super().start())
-#
-#         @default('pre_spawn_hook')
-#         def _pre_spawn_hook(self):
-#
-#             self.log.debug(f"CustomSpawner::pre_spawn_hook")
-#
-#         #     # Overwriting the profile name to match with the server name
-#         #     if self.name:
-#         #       self.user_options["profile"] = self.name
-#         #
-#         #     # This returns with an error if the chosen profile doesn't exist
-#         #     self.load_user_options()
-#
-#
-#         def _options_form_default(self):
-#           """Custom option form callable function to only show profiles
-#           for the default server and not for the named servers.
-#           """
-#
-#           self.log.debug(f"CustomSpawner::options_form")
-#
-#           # Do not show forms for named servers
-#           if self.name:
-#             return ''
-#
-#           return super()._options_form_default()
-#
-#         async def load_user_options(self):
-#
-#           self.log.debug("CustomSpawner::load_user_options")
-#
-#           # Overwrite the profile name to match with the server name
-#           if self.name:
-#             self.user_options["profile"] = self.name
-#
-#           await super().load_user_options()
-#
-#       c.JupyterHub.spawner_class = CustomSpawner
-#
-#
-#
 
 # Spawn single-user servers as Docker containers
-# c.JupyterHub.spawner_class = "dockerspawner.DockerSpawner"
 c.JupyterHub.spawner_class = NORTHSpawner
-c.Spawner.pre_spawn_hook = my_hook
-c.Spawner.auth_state_hook = "NORTHSpawner.auth_state_hook"
 
-
-# Spawn containers from this image
-# c.DockerSpawner.image = os.environ["DOCKER_NOTEBOOK_IMAGE"]
 
 # For debugging arguments passed to spawned containers
-c.DockerSpawner.debug = True
+c.DockerSpawner.debug = False
 
 
 # Remove containers once they are stopped
@@ -426,17 +308,6 @@ c.DockerSpawner.prefix = os.environ.get(
 c.DockerSpawner.use_internal_ip = True
 c.DockerSpawner.network_name = os.environ.get(
     "DOCKER_NETWORK", "nomad_oasis_network")
-
-# Explicitly set notebook directory because we'll be mounting a volume to it.
-# Most `jupyter/docker-stacks` *-notebook images run the Notebook server as
-# user `jovyan`, and set the notebook directory to `/home/jovyan/work`.
-# We follow the same convention.
-# notebook_dir = os.environ.get("DOCKER_NOTEBOOK_DIR", )
-# c.DockerSpawner.notebook_dir = notebook_dir
-
-# # Mount the real user's Docker volume on the host to the notebook user's
-# # notebook directory in the container
-# c.DockerSpawner.volumes = {"jupyterhub-user-{username}": "/home/jovyan/work"}
 
 
 # Fixing: Unexpected error: "Gateway Time-out (504)".
