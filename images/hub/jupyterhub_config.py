@@ -39,7 +39,7 @@ class NORTHSpawner(DockerSpawner):
         api_url = f"{self.nomad_api_url}/north/tools/"
         response = requests.get(api_url)
         profile_list = []
-        for tool in response.json()['data']:
+        for tool in response.json():
             profile_list.append(
                 Profile(
                     display_name=tool['name'],
@@ -158,7 +158,7 @@ class NORTHSpawner(DockerSpawner):
         spawner.log.info(response.json())
 
         mounts = []
-        for mount in response.json()['mounts']:
+        for mount in response.json():
             mounts.append({
                 'type': 'bind',
                 'source': mount['source'],
@@ -314,3 +314,15 @@ c.DockerSpawner.network_name = os.environ.get(
 # Please try again and let us know, if this error keeps happening.
 c.DockerSpawner.http_timeout = 5 * 60  # in seconds
 c.DockerSpawner.start_timeout = 10 * 60  # in seconds
+
+
+
+# configure nomad service
+c.JupyterHub.services.append(
+    {
+        'name': 'nomad-service',
+        'admin': True,
+        'api_token': os.environ.get(
+    "SERVICE_API_TOKEN", "secret-token"),
+    }
+)
