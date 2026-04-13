@@ -3,7 +3,8 @@ FROM quay.io/jupyterhub/jupyterhub:$JUPYTERHUB_VERSION
 
 RUN python3 -m pip install --no-cache \
     dockerspawner \
-    oauthenticator
+    oauthenticator \
+    pydantic_settings
 
 COPY logo /srv/jupyterhub/logo
 COPY templates /srv/jupyterhub/templates

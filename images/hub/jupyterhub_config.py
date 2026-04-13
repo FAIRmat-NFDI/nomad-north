@@ -1,4 +1,3 @@
-import os
 import requests
 import logging
 import functools
@@ -9,6 +8,7 @@ from tornado.httputil import url_concat
 from urllib.parse import parse_qsl
 from jinja2 import Environment, FileSystemLoader
 from pydantic import BaseModel, Field
+from pydantic_settings import BaseSettings
 
 from dockerspawner import DockerSpawner
 from jupyterhub.utils import url_path_join
@@ -16,7 +16,6 @@ from jupyterhub.utils import url_path_join
 c = get_config()  # type: ignore # noqa: F821
 
 logger = logging.getLogger(__name__)
-
 
 
 class Profile(BaseModel):
@@ -28,11 +27,42 @@ class Profile(BaseModel):
     default_url: str = Field(
         "/lab", description="Default URL to open when the profile is started")
 
+# https://nomad-lab.eu/fairdi/keycloak/auth/realms/fairdi_nomad_test/.well-known/openid-configuration
+class Config(BaseSettings):
+    nomad_api_url: str = Field(
+        "http://app:8000/nomad-oasis/api/v1", description="URL of the Nomad API")
+    hub_port: int = Field(9000, description="Port for the JupyterHub")
+    base_url: str = Field("/nomad-oasis/north/",
+                          description="Base URL for the JupyterHub")
+    hub_ip: str = Field("0.0.0.0", description="IP address for the JupyterHub")
+    hub_connect_ip: str = Field(
+        "north", description="IP address for the JupyterHub to connect to")
+    admin_users: list[str] = Field([], description="List of admin users")
+    oauth_callback_url: str = Field(
+        "http://localhost:9000/nomad-oasis/north/hub/oauth_callback", description="OAuth callback URL")
+    oauth_client_id: str = Field("public", description="OAuth client ID")
+    oauth_client_secret: str = Field("", description="OAuth client secret")
+    authorize_url: str = Field(
+        "https://nomad-lab.eu/fairdi/keycloak/auth/realms/fairdi_nomad_test/protocol/openid-connect/auth", description="OAuth authorize URL")
+    token_url: str = Field(
+        "https://nomad-lab.eu/fairdi/keycloak/auth/realms/fairdi_nomad_test/protocol/openid-connect/token", description="OAuth token URL")
+    userdata_url: str = Field(
+        "https://nomad-lab.eu/fairdi/keycloak/auth/realms/fairdi_nomad_test/protocol/openid-connect/userinfo", description="OAuth userdata URL")
+    docker_prefix: str = Field(
+        "nomad-oasis-north", description="Prefix for Docker container names")
+    docker_network: str = Field(
+        "nomad_oasis_network", description="Docker network name")
+    service_api_token: str = Field(
+        "secret-token", description="API token for the Nomad service")
+
+
+config = Config()
+logger.info(f"Configuration: {config.model_dump()}")
 
 
 class NORTHSpawner(DockerSpawner):
 
-    nomad_api_url = os.environ.get("NOMAD_API_URL", "http://app:8000/nomad-oasis/api/v1")
+    nomad_api_url = config.nomad_api_url
 
     @functools.cached_property
     def profile_list(self):
@@ -50,7 +80,6 @@ class NORTHSpawner(DockerSpawner):
                 )
             )
         return profile_list
-
 
     def _options_form_default(self):
         """Custom option form callable function to only show profiles
@@ -97,9 +126,7 @@ class NORTHSpawner(DockerSpawner):
         if profile_slug:
             options["profile"] = profile_slug
 
-
         return options
-
 
     def run_options_from_form(self, form_options):
         self.log.info(
@@ -135,8 +162,6 @@ class NORTHSpawner(DockerSpawner):
 
         spawner.user_options["access_token"] = auth_state["access_token"]
 
-
-
     @default('pre_spawn_hook')
     def _pre_spawn_hook(spawner):
         # spawner.log.info("!!!!!! pre_spawn_hook !!!!!!")
@@ -148,9 +173,9 @@ class NORTHSpawner(DockerSpawner):
 
             spawner.image = spawner._get_profile(spawner.name).image
 
-
         api_url = f"{spawner.nomad_api_url}/north/mounts/{spawner.name}"
-        api_headers = {"Authorization": f"Bearer {spawner.user_options.get('access_token')}"}
+        api_headers = {
+            "Authorization": f"Bearer {spawner.user_options.get('access_token')}"}
 
         response = requests.get(api_url, headers=api_headers)
         spawner.log.info(f"api_url: {api_url}")
@@ -166,7 +191,6 @@ class NORTHSpawner(DockerSpawner):
                 'read_only': mount['mode'] != 'rw'
             })
         spawner.mounts = mounts
-
 
 
 async def user_redirect_hook(path, request, user, base_url):
@@ -201,14 +225,14 @@ async def user_redirect_hook(path, request, user, base_url):
 
 
 # User containers will access hub by container name on the Docker network
-# c.JupyterHub.hub_ip = os.environ.get("HUB_IP", "localhost")
+# c.JupyterHub.hub_ip = "localhost"
 # c.JupyterHub.hub_connect_ip = "north"
-c.JupyterHub.port = os.environ.get("HUB_PORT", 9000)
-c.JupyterHub.base_url = os.environ.get("BASE_URL", "/nomad-oasis/north/")
+c.JupyterHub.port = config.hub_port
+c.JupyterHub.base_url = config.base_url
 # By default listen on all interfaces to be accessible from outside the container
-c.JupyterHub.hub_ip = os.environ.get("HUB_IP", "0.0.0.0")
+c.JupyterHub.hub_ip = config.hub_ip
 # IP as seen on the docker network. Can also be a hostname.
-c.JupyterHub.hub_connect_ip = os.environ.get("HUB_CONNECT_IP", "north")
+c.JupyterHub.hub_connect_ip = config.hub_connect_ip
 
 
 # Persist hub data on volume mounted inside container
@@ -233,7 +257,7 @@ c.Authenticator.allow_all = True
 c.Authenticator.auto_login = True
 c.Authenticator.refresh_pre_spawn = True
 c.Authenticator.enable_auth_state = True
-c.Authenticator.admin_users = os.environ.get("ADMIN_USERS", "").split(",")
+c.Authenticator.admin_users = config.admin_users
 
 # Users do not have permission to read their own auth state by default, but auth_state is where the access_token is stored.
 # https://oauthenticator.readthedocs.io/en/latest/how-to/refresh.html#refreshing-tokens-from-user-sessions
@@ -269,23 +293,16 @@ c.GenericOAuthenticator.username_claim = "preferred_username"
 # OAuth2 application info
 # -----------------------
 # Note: callback_url should be an url accessible from "outside"
-c.GenericOAuthenticator.oauth_callback_url = os.environ.get(
-    "HUB_OAUTH_CALLBACK_URL", "http://localhost:9000/nomad-oasis/north/hub/oauth_callback")
-c.GenericOAuthenticator.client_id = os.environ.get("OAUTH_CLIENT_ID", "public")
-c.GenericOAuthenticator.client_secret = os.environ.get(
-    "OAUTH_CLIENT_SECRET", "")
+c.GenericOAuthenticator.oauth_callback_url = config.oauth_callback_url
+c.GenericOAuthenticator.client_id = config.oauth_client_id
+c.GenericOAuthenticator.client_secret = config.oauth_client_secret
 
 # Identity provider info
 # ----------------------
-# https://nomad-lab.eu/fairdi/keycloak/auth/realms/fairdi_nomad_test/.well-known/openid-configuration
 c.GenericOAuthenticator.userdata_params = {"state": "state"}
-c.GenericOAuthenticator.authorize_url = os.environ.get(
-    "HUB_AUTHORIZE_URL", "https://nomad-lab.eu/fairdi/keycloak/auth/realms/fairdi_nomad_test/protocol/openid-connect/auth")
-c.GenericOAuthenticator.token_url = os.environ.get(
-    "HUB_TOKEN_URL", "https://nomad-lab.eu/fairdi/keycloak/auth/realms/fairdi_nomad_test/protocol/openid-connect/token")
-c.GenericOAuthenticator.userdata_url = os.environ.get(
-    "HUB_USERDATA_URL", "https://nomad-lab.eu/fairdi/keycloak/auth/realms/fairdi_nomad_test/protocol/openid-connect/userinfo")
-
+c.GenericOAuthenticator.authorize_url = config.authorize_url
+c.GenericOAuthenticator.token_url = config.token_url
+c.GenericOAuthenticator.userdata_url = config.userdata_url
 
 
 # Spawn single-user servers as Docker containers
@@ -301,13 +318,11 @@ c.DockerSpawner.remove = True
 
 # Prefix for container names. See name_template for full container name for a particular
 # user's server. (Default: 'jupyter')
-c.DockerSpawner.prefix = os.environ.get(
-    "DOCKER_PREFIX", "nomad-oasis-north")
+c.DockerSpawner.prefix = config.docker_prefix
 
 # Connect containers to this Docker network
 c.DockerSpawner.use_internal_ip = True
-c.DockerSpawner.network_name = os.environ.get(
-    "DOCKER_NETWORK", "nomad_oasis_network")
+c.DockerSpawner.network_name = config.docker_network
 
 
 # Fixing: Unexpected error: "Gateway Time-out (504)".
@@ -316,13 +331,11 @@ c.DockerSpawner.http_timeout = 5 * 60  # in seconds
 c.DockerSpawner.start_timeout = 10 * 60  # in seconds
 
 
-
 # configure nomad service
 c.JupyterHub.services.append(
     {
         'name': 'nomad-service',
         'admin': True,
-        'api_token': os.environ.get(
-    "SERVICE_API_TOKEN", "secret-token"),
+        'api_token': config.service_api_token,
     }
 )
