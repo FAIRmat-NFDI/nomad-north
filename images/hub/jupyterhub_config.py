@@ -183,6 +183,7 @@ class NORTHSpawner(DockerSpawner):
         spawner.log.info(response.json())
 
         mounts = []
+        upload_ids = []
         for mount in response.json():
             mounts.append({
                 'type': 'bind',
@@ -190,8 +191,11 @@ class NORTHSpawner(DockerSpawner):
                 'target': mount['target'],
                 'read_only': mount['mode'] != 'rw'
             })
-        spawner.mounts = mounts
+            if 'upload_id' in mount and mount['upload_id'] is not None:
+                upload_ids.append(mount['upload_id'])
 
+        spawner.mounts = mounts
+        spawner.user_options["upload_ids"] = upload_ids
 
 async def user_redirect_hook(path, request, user, base_url):
     """Changing the the behavior of /user-redirect/ url
