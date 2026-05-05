@@ -1,9 +1,0 @@
-[submodule "dockerspawner"]
-	path = dockerspawner
-	url = https://github.com/jupyterhub/dockerspawner.git
-[submodule "kubespawner"]
-	path = kubespawner
-	url = https://github.com/jupyterhub/kubespawner.git
-[submodule "zero-to-jupyterhub-k8s"]
-	path = zero-to-jupyterhub-k8s
-	url = https://github.com/jupyterhub/zero-to-jupyterhub-k8s.git

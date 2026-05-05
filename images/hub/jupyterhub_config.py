@@ -182,6 +182,9 @@ class NORTHSpawner(DockerSpawner):
         spawner.log.info(response.status_code)
         spawner.log.info(response.json())
 
+        logger.error(f"pre_spawn_hook")
+        logger.error(f"spawner: {spawner}")
+
         mounts = []
         upload_ids = {}
         for mount in response.json():
@@ -206,8 +209,9 @@ async def user_redirect_hook(path, request, user, base_url):
 
     user_url = url_path_join(user.url, path)
 
-    logger.info(f"request.query: {request.query}")
-    logger.info(f"user_url: {user_url}")
+    logger.error(f"request.query: {request.query}")
+    logger.error(f"user_url: {user_url}")
+    logger.error(f"user: {user}")
 
     if request.query:
         user_url = url_concat(user_url, parse_qsl(request.query))
