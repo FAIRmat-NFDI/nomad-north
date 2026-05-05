@@ -15,8 +15,6 @@ from jupyterhub.utils import url_path_join
 
 c = get_config()  # type: ignore # noqa: F821
 
-logger = logging.getLogger(__name__)
-
 
 class Profile(BaseModel):
     display_name: str = Field(..., description="Name of the profile")
@@ -27,7 +25,7 @@ class Profile(BaseModel):
     default_url: str = Field(
         "/lab", description="Default URL to open when the profile is started")
 
-# https://nomad-lab.eu/fairdi/keycloak/auth/realms/fairdi_nomad_test/.well-known/openid-configuration
+
 class Config(BaseSettings):
     nomad_api_url: str = Field(
         "http://app:8000/nomad-oasis/api/v1", description="URL of the Nomad API")
@@ -57,7 +55,6 @@ class Config(BaseSettings):
 
 
 config = Config()
-logger.info(f"Configuration: {config.model_dump()}")
 
 
 class NORTHSpawner(DockerSpawner):
@@ -85,7 +82,6 @@ class NORTHSpawner(DockerSpawner):
         """Custom option form callable function to only show profiles
         for the default server and not for the named servers.
         """
-        self.log.info("!!!!!! _options_form_default !!!!!!")
 
         if not self.profile_list:
             return ''
@@ -116,10 +112,8 @@ class NORTHSpawner(DockerSpawner):
             user_options (dict): the selected profile in the user_options form,
                 e.g. ``{"profile": "cpus-8"}``
         """
-        self.log.info("!!!!!! options_from_form !!!!!!")
 
         options = {}
-        # self.log.info(formdata)
 
         profile_slug = formdata.get("profile", [None])[0]
 
@@ -129,8 +123,6 @@ class NORTHSpawner(DockerSpawner):
         return options
 
     def run_options_from_form(self, form_options):
-        self.log.info(
-            "!!!!!!l run_options_from_form !!!!!!")
         print(form_options)
 
     def _get_profile(self, slug: str):
@@ -155,7 +147,6 @@ class NORTHSpawner(DockerSpawner):
 
     @staticmethod
     def auth_state_hook(spawner, auth_state):
-        spawner.log.info(f"!!!!!! auth_state_hook ({spawner.name}) !!!!!!")
 
         if not spawner.name:
             return
@@ -164,7 +155,6 @@ class NORTHSpawner(DockerSpawner):
 
     @default('pre_spawn_hook')
     def _pre_spawn_hook(spawner):
-        # spawner.log.info("!!!!!! pre_spawn_hook !!!!!!")
 
         if spawner.name:
             if spawner.name not in [p.slug for p in spawner.profile_list]:
@@ -178,12 +168,6 @@ class NORTHSpawner(DockerSpawner):
             "Authorization": f"Bearer {spawner.user_options.get('access_token')}"}
 
         response = requests.get(api_url, headers=api_headers)
-        spawner.log.info(f"api_url: {api_url}")
-        spawner.log.info(response.status_code)
-        spawner.log.info(response.json())
-
-        logger.error(f"pre_spawn_hook")
-        logger.error(f"spawner: {spawner}")
 
         mounts = []
         upload_ids = {}
@@ -200,6 +184,7 @@ class NORTHSpawner(DockerSpawner):
         spawner.mounts = mounts
         spawner.user_options["upload_ids"] = upload_ids
 
+
 async def user_redirect_hook(path, request, user, base_url):
     """Changing the the behavior of /user-redirect/ url
     Instead of using default server the first path must be
@@ -208,10 +193,6 @@ async def user_redirect_hook(path, request, user, base_url):
     server_name = path.split("/", 1)[0]
 
     user_url = url_path_join(user.url, path)
-
-    logger.error(f"request.query: {request.query}")
-    logger.error(f"user_url: {user_url}")
-    logger.error(f"user: {user}")
 
     if request.query:
         user_url = url_concat(user_url, parse_qsl(request.query))
