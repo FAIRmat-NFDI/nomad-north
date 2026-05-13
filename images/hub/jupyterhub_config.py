@@ -1,5 +1,4 @@
 import requests
-import logging
 import functools
 
 from traitlets import default
@@ -38,14 +37,12 @@ class Config(BaseSettings):
     admin_users: list[str] = Field([], description="List of admin users")
     oauth_callback_url: str = Field(
         "http://localhost:9000/nomad-oasis/north/hub/oauth_callback", description="OAuth callback URL")
+    keycloak_url: str = Field(
+        "https://nomad-lab.eu/fairdi/keycloak", description="Base URL for Keycloak")
+    keycloak_realm: str = Field(
+        "fairdi_nomad_test", description="Keycloak realm")
     oauth_client_id: str = Field("public", description="OAuth client ID")
     oauth_client_secret: str = Field("", description="OAuth client secret")
-    authorize_url: str = Field(
-        "https://nomad-lab.eu/fairdi/keycloak/auth/realms/fairdi_nomad_test/protocol/openid-connect/auth", description="OAuth authorize URL")
-    token_url: str = Field(
-        "https://nomad-lab.eu/fairdi/keycloak/auth/realms/fairdi_nomad_test/protocol/openid-connect/token", description="OAuth token URL")
-    userdata_url: str = Field(
-        "https://nomad-lab.eu/fairdi/keycloak/auth/realms/fairdi_nomad_test/protocol/openid-connect/userinfo", description="OAuth userdata URL")
     docker_prefix: str = Field(
         "nomad-oasis-north", description="Prefix for Docker container names")
     docker_network: str = Field(
@@ -292,9 +289,12 @@ c.GenericOAuthenticator.client_secret = config.oauth_client_secret
 # Identity provider info
 # ----------------------
 c.GenericOAuthenticator.userdata_params = {"state": "state"}
-c.GenericOAuthenticator.authorize_url = config.authorize_url
-c.GenericOAuthenticator.token_url = config.token_url
-c.GenericOAuthenticator.userdata_url = config.userdata_url
+c.GenericOAuthenticator.authorize_url = url_path_join(
+    config.keycloak_url, f"/auth/realms/{config.keycloak_realm}/protocol/openid-connect/auth")
+c.GenericOAuthenticator.token_url = url_path_join(
+    config.keycloak_url, f"/auth/realms/{config.keycloak_realm}/protocol/openid-connect/token")
+c.GenericOAuthenticator.userdata_url = url_path_join(
+    config.keycloak_url, f"/auth/realms/{config.keycloak_realm}/protocol/openid-connect/userinfo")
 
 
 # Spawn single-user servers as Docker containers
