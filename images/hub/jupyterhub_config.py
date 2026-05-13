@@ -1,3 +1,5 @@
+import os
+
 import requests
 import functools
 
@@ -13,6 +15,9 @@ from dockerspawner import DockerSpawner
 from jupyterhub.utils import url_path_join
 
 c = get_config()  # type: ignore # noqa: F821
+
+if 'JUPYTERHUB_CRYPT_KEY' not in os.environ:
+    os.environ["JUPYTERHUB_CRYPT_KEY"] = os.urandom(32).hex()
 
 
 class Profile(BaseModel):
@@ -36,7 +41,7 @@ class Config(BaseSettings):
         "north", description="IP address for the JupyterHub to connect to")
     admin_users: list[str] = Field([], description="List of admin users")
     oauth_callback_url: str = Field(
-        "http://localhost:9000/nomad-oasis/north/hub/oauth_callback", description="OAuth callback URL")
+        "http://localhost/nomad-oasis/north/hub/oauth_callback", description="OAuth callback URL")
     keycloak_url: str = Field(
         "https://nomad-lab.eu/fairdi/keycloak", description="Base URL for Keycloak")
     keycloak_realm: str = Field(
@@ -48,7 +53,7 @@ class Config(BaseSettings):
     docker_network: str = Field(
         "nomad_oasis_network", description="Docker network name")
     service_api_token: str = Field(
-        "secret-token", description="API token for the Nomad service")
+        "", description="API token for the Nomad service")
 
 
 config = Config()
