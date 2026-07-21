@@ -163,7 +163,9 @@ class NORTHSpawner(DockerSpawner):
                 # spawner.remove_object()
                 raise web.HTTPError(403, "This profile is not allowed")
 
-            spawner.image = spawner._get_profile(spawner.name).image
+            profile = spawner._get_profile(spawner.name)
+            spawner.image = profile.image
+            spawner.default_url = profile.default_url
 
         api_url = f"{spawner.nomad_api_url}/north/mounts/{spawner.name}"
         api_headers = {
