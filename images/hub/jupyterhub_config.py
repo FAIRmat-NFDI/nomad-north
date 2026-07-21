@@ -43,7 +43,7 @@ class Config(BaseSettings):
     oauth_callback_url: str = Field(
         "http://localhost/nomad-oasis/north/hub/oauth_callback", description="OAuth callback URL")
     keycloak_url: str = Field(
-        "https://nomad-lab.eu/fairdi/keycloak", description="Base URL for Keycloak")
+        "https://nomad-lab.eu/fairdi/keycloak/auth", description="Base URL for Keycloak")
     keycloak_realm: str = Field(
         "fairdi_nomad_test", description="Keycloak realm")
     oauth_client_id: str = Field("public", description="OAuth client ID")
@@ -297,11 +297,11 @@ c.GenericOAuthenticator.client_secret = config.oauth_client_secret
 # ----------------------
 c.GenericOAuthenticator.userdata_params = {"state": "state"}
 c.GenericOAuthenticator.authorize_url = url_path_join(
-    config.keycloak_url, f"/auth/realms/{config.keycloak_realm}/protocol/openid-connect/auth")
+    config.keycloak_url, f"/realms/{config.keycloak_realm}/protocol/openid-connect/auth")
 c.GenericOAuthenticator.token_url = url_path_join(
-    config.keycloak_url, f"/auth/realms/{config.keycloak_realm}/protocol/openid-connect/token")
+    config.keycloak_url, f"/realms/{config.keycloak_realm}/protocol/openid-connect/token")
 c.GenericOAuthenticator.userdata_url = url_path_join(
-    config.keycloak_url, f"/auth/realms/{config.keycloak_realm}/protocol/openid-connect/userinfo")
+    config.keycloak_url, f"/realms/{config.keycloak_realm}/protocol/openid-connect/userinfo")
 
 
 # Spawn single-user servers as Docker containers
