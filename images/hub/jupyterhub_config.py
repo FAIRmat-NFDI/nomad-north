@@ -167,6 +167,35 @@ class NORTHSpawner(DockerSpawner):
             spawner.image = profile.image
             spawner.default_url = profile.default_url
 
+            if profile.privileged:
+                spawner.extra_host_config['privileged'] = True
+
+            if profile.seccomp_unconfined:
+                spawner.extra_host_config['security_opt'] = ['seccomp=unconfined']
+
+            if profile.use_gpu:
+                import docker
+
+                # Check if any GPUs are available
+                nvidia_version_path = '/proc/driver/nvidia/version'
+                if os.path.exists(nvidia_version_path):
+                    with open(nvidia_version_path) as file:
+                        version_info = file.read()
+                    spawner.log.info(
+                        f'Enabling nvidia driver with driver info:\n{version_info}.'
+                    )
+                    spawner.extra_host_config['device_requests'] = [
+                        docker.types.DeviceRequest(  # type: ignore
+                            count=-1,
+                            capabilities=[['gpu']],
+                        ),
+                    ]
+                else:
+                    spawner.log.warning(
+                        'GPU requested but no nvidia driver found on host. Disabling GPU usage for this container.'
+                    )
+                    profile.use_gpu = False
+
         api_url = f"{spawner.nomad_api_url}/north/mounts/{spawner.name}"
         api_headers = {
             "Authorization": f"Bearer {spawner.user_options.get('access_token')}"}
@@ -187,6 +216,7 @@ class NORTHSpawner(DockerSpawner):
 
         spawner.mounts = mounts
         spawner.user_options["upload_ids"] = upload_ids
+
 
 
 async def user_redirect_hook(path, request, user, base_url):
