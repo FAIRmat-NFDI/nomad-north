@@ -3,6 +3,7 @@ import os
 import requests
 import functools
 
+from enum import Enum
 from traitlets import default
 from tornado import web
 from tornado.httputil import url_concat
@@ -20,14 +21,110 @@ if 'JUPYTERHUB_CRYPT_KEY' not in os.environ:
     os.environ["JUPYTERHUB_CRYPT_KEY"] = os.urandom(32).hex()
 
 
+class NORTHToolMaintainer(BaseModel):
+    name: str
+    email: str
+
+
+class ReadMode(str, Enum):
+    ro = 'ro'
+    rw = 'rw'
+
+
+class NORTHExternalMount(BaseModel):
+    host_path: str
+    bind: str
+    mode: ReadMode = ReadMode.ro
+
+
 class Profile(BaseModel):
-    display_name: str = Field(..., description="Name of the profile")
-    default: bool = Field(False, description="Is this the default profile?")
-    description: str = Field(..., description="Description of the profile")
     slug: str = Field(..., description="Slug for the profile")
-    image: str = Field(..., description="Docker image for the profile")
-    default_url: str = Field(
-        "/lab", description="Default URL to open when the profile is started")
+    default: bool = Field(False, description="Is this the default profile?")
+    display_name: str = Field(..., description="Name of the profile")
+    short_description: str = Field(
+        ...,
+        description='A short description of the tool, e.g. shown in the NOMAD GUI.',
+    )
+    description: str | None= Field(
+        None, 
+        description='A description of the tool, e.g. shown in the NOMAD GUI.'
+    )
+    image: str = Field(
+        ..., 
+        description="The docker image (incl. tags) to use for the tool."
+    )
+    default_url: str | None = Field(
+        "/lab",
+        description=(
+            'An optional path prefix that is added to the container URL to '
+            'reach the tool, e.g. "/lab" for jupyterlab.'
+        ),
+    )
+    image_pull_policy: str = Field(
+        'always', 
+        description='The image pull policy used in k8s deployments.'
+    )
+    cmd: str | None = Field(
+        None, 
+        description='The container cmd that is passed to the spawner.'
+    )
+    privileged: bool = Field(
+        False, 
+        description='Whether the tool needs to run in privileged mode.'
+    )
+    seccomp_unconfined: bool = Field(
+        False, 
+        description='Whether the tool runs with seccomp=unconfined.'
+    )
+    use_gpu: bool = Field(
+        False,
+        description='Whether the tool is provided access to available GPU resources.',
+    )
+    path_prefix: str | None = Field(
+        None,
+        description=(
+            'An optional path prefix that is added to the container URL to '
+            'reach the files, e.g. "lab/tree" for jupyterlab.'
+        ),
+    )
+    with_path: bool = Field(
+        False,
+        description=(
+            'Whether the path of the file or directory the tool was launched '
+            'from is forwarded to the tool so it can open or deep-link to that '
+            'item. When enabled, the launcher passes the item path to the tool: '
+            'in the old hub it is appended to the tool URL via `path_prefix` '
+            '(e.g. `lab/tree/<path>` for JupyterLab); in the new hub it is sent '
+            'as `upload_id`/`path` query parameters for a handler inside the '
+            'tool image to consume. Only meaningful for tools that can open a '
+            'file from a URL (e.g. JupyterLab); set to False for tools that '
+            'cannot, such as desktop (noVNC) apps like VESTA or FIJI. This does '
+            'NOT control whether the tool is offered for a file in the NOMAD '
+            'UI. That is determined solely by `file_extensions`.'
+        ),
+    )
+    file_extensions: list[str] = Field(
+        [],
+        description='The file extensions of files that this tool should be launchable for.',
+    )
+    mount_path: str | None = Field(
+        None,
+        description=(
+            'The path in the container where uploads and work directories will be mounted, '
+            'e.g. /home/jovyan for Jupyter containers.'
+        ),
+    )
+    icon: str | None = Field(
+        None,
+        description='A URL to an icon that is used to represent the tool in the NOMAD UI.',
+    )
+    maintainer: list[NORTHToolMaintainer] = Field(
+        [], description='The maintainers of the tool.'
+    )
+    external_mounts: list[NORTHExternalMount] = Field(
+        [], description='Additional mounts to be added to tool containers.'
+    )
+
 
 
 class Config(BaseSettings):
@@ -71,11 +168,24 @@ class NORTHSpawner(DockerSpawner):
         for tool in response.json():
             profile_list.append(
                 Profile(
-                    display_name=tool['name'],
-                    description=tool['short_description'],
                     slug=tool['name'],
+                    display_name=tool['name'],
+                    short_description=tool['short_description'],
+                    description=tool['description'],
                     image=tool['image'],
-                    default_url=tool['default_url']
+                    default_url=tool['default_url'],
+                    image_pull_policy=tool['image_pull_policy'],
+                    cmd=tool['cmd'],
+                    privileged=tool['privileged'],
+                    seccomp_unconfined=tool['seccomp_unconfined'],
+                    use_gpu=tool['use_gpu'],
+                    path_prefix=tool['path_prefix'],
+                    with_path=tool['with_path'],
+                    file_extensions=tool['file_extensions'],
+                    mount_path=tool['mount_path'],
+                    icon=tool['icon'],
+                    maintainer=tool['maintainer'],
+                    external_mounts=tool['external_mounts']
                 )
             )
         return profile_list
@@ -166,6 +276,12 @@ class NORTHSpawner(DockerSpawner):
             profile = spawner._get_profile(spawner.name)
             spawner.image = profile.image
             spawner.default_url = profile.default_url
+
+            if profile.image_pull_policy:
+                spawner.pull_policy = profile.image_pull_policy
+
+            if profile.cmd:
+                spawner.cmd = profile.cmd
 
             if profile.privileged:
                 spawner.extra_host_config['privileged'] = True
@@ -262,8 +378,8 @@ c.JupyterHub.hub_connect_ip = config.hub_connect_ip
 
 
 # Persist hub data on volume mounted inside container
-c.JupyterHub.cookie_secret_file = "/data/jupyterhub_cookie_secret"
-c.JupyterHub.db_url = "sqlite:////data/jupyterhub.sqlite"
+# c.JupyterHub.cookie_secret_file = "/data/jupyterhub_cookie_secret"
+# c.JupyterHub.db_url = "sqlite:////data/jupyterhub.sqlite"
 
 
 c.JupyterHub.allow_named_servers = True
