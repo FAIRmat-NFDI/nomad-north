@@ -401,7 +401,7 @@ async def user_redirect_hook(path, request, user, base_url):
             f"[NORTH user_redirect_hook] path={path} server_name={server_name} profil={profile}"
         )
     spawner.log.info(
-            f"[NORTH user_redirect_hook] path={path} server_name={server_name} spawner={spawner}"
+            f"[NORTH user_redirect_hook] path={path} server_name={server_name} spawner.ready={spawner.ready} spawner.active={spawner.active} spawner.pending={spawner.pending} spawner.state={spawner.state} spawner.user_options={spawner.user_options}"
         )
     
     # If the server is stopped, forward to spawn flow
