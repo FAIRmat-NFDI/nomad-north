@@ -416,8 +416,8 @@ c.JupyterHub.hub_connect_ip = config.hub_connect_ip
 
 
 # Persist hub data on volume mounted inside container
-# c.JupyterHub.cookie_secret_file = "/data/jupyterhub_cookie_secret"
-# c.JupyterHub.db_url = "sqlite:////data/jupyterhub.sqlite"
+c.JupyterHub.cookie_secret_file = "/data/jupyterhub_cookie_secret"
+c.JupyterHub.db_url = "sqlite:////data/jupyterhub.sqlite"
 
 
 c.JupyterHub.allow_named_servers = True
