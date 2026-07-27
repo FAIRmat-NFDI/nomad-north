@@ -409,7 +409,7 @@ async def user_redirect_hook(path, request, user, base_url):
         f"[NORTH user_redirect_hook] path={path} server_name={server_name} spawner.ready={spawner.ready} spawner.active={spawner.active} spawner.pending={spawner.pending} spawner.user_options={spawner.user_options}"
     )
 
-    next_url = user.url
+    next_url = os.path.join(user.url, server_name)
 
     if 'upload_id' in query and 'path' in query:
         upload_id = query["upload_id"][0]
