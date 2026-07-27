@@ -398,13 +398,16 @@ async def user_redirect_hook(path, request, user, base_url):
     spawner = user.spawners.get(server_name) or user.get_spawner(server_name)
     profile = spawner._get_profile(spawner.name)
     spawner.log.info(
-        f"[NORTH user_redirect_hook] path={path} server_name={server_name} profil={profile}"
-    )
-
+            f"[NORTH user_redirect_hook] path={path} server_name={server_name} profil={profile}"
+        )
+    spawner.log.info(
+            f"[NORTH user_redirect_hook] path={path} server_name={server_name} spawner={spawner}"
+        )
+    
     # If the server is stopped, forward to spawn flow
     if not spawner.ready:
         spawner.log.info(
-            f"[NORTH user_redirect_hook] path={path} server_name={server_name} NOT READY, redirecting to spawn flow"
+            f"[NORTH user_redirect_hook] server_name={server_name} NOT READY, redirecting to spawn flow"
         )
         # spawn_url = f"/hub/spawn/{user.name}/{server_name}" if server_name else f"/hub/spawn/{user.name}"
 
