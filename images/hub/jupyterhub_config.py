@@ -125,6 +125,7 @@ class Profile(BaseModel):
         [], description='Additional mounts to be added to tool containers.'
     )
 
+Profile.model_rebuild()
 
 
 class Config(BaseSettings):
