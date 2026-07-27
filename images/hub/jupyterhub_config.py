@@ -343,23 +343,6 @@ class NORTHSpawner(DockerSpawner):
 
             spawner.mounts = mounts
             spawner.user_options["upload_ids"] = upload_ids
-
-
-            # # Read URL parameters stored in user_options
-            # upload_id = spawner.user_options.get('upload_id')
-            # rel_path = spawner.user_options.get('path')
-
-            # if profile.with_path and upload_id and upload_id in upload_ids:
-                
-            #     if rel_path:
-            #         full_path = os.path.join(upload_ids[upload_id], rel_path.lstrip('/'))
-            #     else:
-            #         full_path = upload_ids[upload_id]
-
-            #     # Determine route prefix (e.g. use path_prefix eg: "lab/tree" )
-            #     prefix = profile.path_prefix.strip('/')
-            #     spawner.default_url = f"/{prefix}/{full_path.lstrip('/')}"
-
             
             # Standard landing page without explicit path deep-linking
             spawner.default_url = profile.default_url
