@@ -7,7 +7,7 @@ from enum import Enum
 from traitlets import default
 from tornado import web
 from tornado.httputil import url_concat
-from urllib.parse import parse_qsl
+from urllib.parse import parse_qsl, parse_qs
 from jinja2 import Environment, FileSystemLoader
 from pydantic import BaseModel, Field
 from pydantic_settings import BaseSettings
@@ -241,23 +241,23 @@ class NORTHSpawner(DockerSpawner):
 
         return options
 
-    def options_from_query(self, query_options):
-        options = super().options_from_query(query_options)
+    # def options_from_query(self, query_options):
+    #     options = super().options_from_query(query_options)
 
-        upload_id = query_options.get('upload_id', [None])[0]
-        path = query_options.get('path', [None])[0]
+    #     upload_id = query_options.get('upload_id', [None])[0]
+    #     path = query_options.get('path', [None])[0]
 
-        if upload_id:
-            options["upload_id"] = upload_id
-        if path:
-            options["path"] = path
+    #     if upload_id:
+    #         options["upload_id"] = upload_id
+    #     if path:
+    #         options["path"] = path
 
-        self.log.info(f"[NORTH options_from_query] upload_id: {upload_id}, path: {path}")
+    #     self.log.info(f"[NORTH options_from_query] upload_id: {upload_id}, path: {path}")
 
         return options
 
-    def run_options_from_form(self, form_options):
-        self.log.info(f"[NORTH run_options_from_form] form_options: {form_options}")
+    # def run_options_from_form(self, form_options):
+    #     self.log.info(f"[NORTH run_options_from_form] form_options: {form_options}")
 
     def _get_profile(self, slug: str):
         """
@@ -393,61 +393,63 @@ async def user_redirect_hook(path, request, user, base_url):
     the name of the named server
     """
     server_name = path.split("/", 1)[0]
+    query = parse_qs(request.query)
 
     # Get or instantiate the spawner for this server
     spawner = user.spawners.get(server_name) or user.get_spawner(server_name)
     profile = spawner._get_profile(spawner.name)
+
+    spawner.log.info(
+    f"[NORTH user_redirect_hook] path= {path} query= {query} base_url= {base_url} user_url= {user.url}"
+    )
     spawner.log.info(
             f"[NORTH user_redirect_hook] path={path} server_name={server_name} profil={profile}"
         )
     spawner.log.info(
             f"[NORTH user_redirect_hook] path={path} server_name={server_name} spawner.ready={spawner.ready} spawner.active={spawner.active} spawner.pending={spawner.pending} spawner.user_options={spawner.user_options}"
         )
+
+    next_url = user.url
+
+    if 'upload_id' in query and 'path' in query:
+        upload_id = query["upload_id"][0]
+        upload_ids = spawner.user_options.get("upload_ids", {})
+        if upload_id in upload_ids:
+            rel_path = query.get("path", [""])[0]
+            next_url = os.path.join(
+                next_url,
+                profile.path_prefix.lstrip("/"),
+                upload_ids[upload_id], 
+                rel_path.lstrip("/")
+            )
+    # else:
+    #     next_url = os.path.join(next_url, profile.default_url.lstrip("/"))
     
     # If the server is stopped, forward to spawn flow
     if not spawner.ready:
         spawner.log.info(
             f"[NORTH user_redirect_hook] server_name={server_name} NOT READY, redirecting to spawn flow"
         )
-        # spawn_url = f"/hub/spawn/{user.name}/{server_name}" if server_name else f"/hub/spawn/{user.name}"
-
-        # if request.query:
-        #     spawn_url += f"?{request.query}"
- 
-        # return spawn_url
-
-
-    # (Handle active server redirect here if already running...)
-
-    #         url_path_join(
-    #         base_url,
-    #         "spawn",
-    #         user.escaped_name,
-    #         server_name
-
-    # return f"/user/{user.name}/{server_name}/lab"
-
-
-    user_url = url_path_join(user.url, path)
-
-    if request.query:
-        user_url = url_concat(user_url, parse_qsl(request.query))
-
-    url = url_concat(
-        url_path_join(
+        url = url_path_join(
             base_url,
             "spawn",
             user.escaped_name,
-            server_name,
-        ),
-        {"next": user_url},
-    )
+            server_name
+        )
+        
+        if next_url:
+            url = url_concat(url, {"next": next_url})
+
+        return url
+ 
+    # (Handle active server redirect here if already running...)
 
     spawner.log.info(
         f"[NORTH user_redirect_hook] path={path} server_name={server_name} "
         f"user={user.name} next_url={url} query={request.query} base_url={base_url} user_url={user.url}"
     )
-    return url
+
+    return next_url
 
 
 # Hub configuration
