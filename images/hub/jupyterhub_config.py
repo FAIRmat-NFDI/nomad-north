@@ -286,7 +286,7 @@ class NORTHSpawner(DockerSpawner):
         spawner.log.info(
             f"[NORTH auth_state_hook] access_token: {spawner.user_options['access_token']}"
         )
-        
+
 
     @default('pre_spawn_hook')
     def _pre_spawn_hook(spawner):
@@ -503,7 +503,7 @@ c.JupyterHub.spawner_class = NORTHSpawner
 
 
 # For debugging arguments passed to spawned containers
-c.DockerSpawner.debug = False
+c.DockerSpawner.debug = True
 
 
 # Remove containers once they are stopped
