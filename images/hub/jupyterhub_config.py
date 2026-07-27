@@ -233,6 +233,8 @@ class NORTHSpawner(DockerSpawner):
         if profile_slug:
             options["profile"] = profile_slug
 
+        self.log.info(f"[NORTH options_from_form] profile_slug: {profile_slug}")
+
         return options
 
     def options_from_query(self, query_options):
@@ -246,10 +248,12 @@ class NORTHSpawner(DockerSpawner):
         if path:
             options["path"] = path
 
+        self.log.info(f"[NORTH options_from_query] upload_id: {upload_id}, path: {path}")
+
         return options
 
     def run_options_from_form(self, form_options):
-        print(form_options)
+        self.log.info(f"[NORTH run_options_from_form] form_options: {form_options}")
 
     def _get_profile(self, slug: str):
         """
@@ -278,6 +282,11 @@ class NORTHSpawner(DockerSpawner):
             return
 
         spawner.user_options["access_token"] = auth_state["access_token"]
+
+        spawner.log.info(
+            f"[NORTH auth_state_hook] access_token: {spawner.user_options['access_token']}"
+        )
+        
 
     @default('pre_spawn_hook')
     def _pre_spawn_hook(spawner):
