@@ -399,13 +399,13 @@ async def user_redirect_hook(path, request, user, base_url):
     spawner = user.spawners.get(server_name) or user.get_spawner(server_name)
     profile = spawner._get_profile(spawner.name)
 
-    spawner.log.debug(
+    spawner.log.info(
         f"[NORTH user_redirect_hook] path={path} query={query} base_url={base_url} user_url={user.url}"
     )
-    spawner.log.debug(
+    spawner.log.info(
         f"[NORTH user_redirect_hook] path={path} server_name={server_name} profil={profile}"
     )
-    spawner.log.debug(
+    spawner.log.info(
         f"[NORTH user_redirect_hook] path={path} server_name={server_name} spawner.ready={spawner.ready} spawner.active={spawner.active} spawner.pending={spawner.pending} spawner.user_options={spawner.user_options}"
     )
 
@@ -419,7 +419,7 @@ async def user_redirect_hook(path, request, user, base_url):
             next_url = os.path.join(
                 next_url,
                 profile.path_prefix.lstrip("/"),
-                upload_ids[upload_id], 
+                upload_ids[upload_id].lstrip("/"), 
                 rel_path.lstrip("/")
             )
     # else:
@@ -437,7 +437,7 @@ async def user_redirect_hook(path, request, user, base_url):
         if next_url:
             url = url_concat(url, {"next": next_url})
 
-        spawner.log.debug(
+        spawner.log.info(
             f"[NORTH user_redirect_hook] server_name={server_name} NOT READY, url: {url}"
         )
 
@@ -445,7 +445,7 @@ async def user_redirect_hook(path, request, user, base_url):
  
     # (Handle active server redirect here if already running...)
 
-    spawner.log.debug(
+    spawner.log.info(
         f"[NORTH user_redirect_hook] path={path} server_name={server_name} next_url={next_url}"
     )
 
