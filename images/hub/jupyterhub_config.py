@@ -404,6 +404,11 @@ async def user_redirect_hook(path, request, user, base_url):
         ),
         {"next": user_url},
     )
+
+    print(
+        f"[NORTH user_redirect_hook] path={path} server_name={server_name} "
+        f"user={user.name} next_url={url}"
+    )
     return url
 
 
