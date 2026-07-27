@@ -80,8 +80,8 @@ class Profile(BaseModel):
         False,
         description='Whether the tool is provided access to available GPU resources.',
     )
-    path_prefix: str | None = Field(
-        None,
+    path_prefix: str = Field(
+        'lab/tree',
         description=(
             'An optional path prefix that is added to the container URL to '
             'reach the files, e.g. "lab/tree" for jupyterlab.'
@@ -107,8 +107,8 @@ class Profile(BaseModel):
         [],
         description='The file extensions of files that this tool should be launchable for.',
     )
-    mount_path: str | None = Field(
-        None,
+    mount_path: str = Field(
+        "/home/jovyan",
         description=(
             'The path in the container where uploads and work directories will be mounted, '
             'e.g. /home/jovyan for Jupyter containers.'
@@ -234,6 +234,19 @@ class NORTHSpawner(DockerSpawner):
 
         return options
 
+    def options_from_query(self, query_options):
+        options = super().options_from_query(query_options)
+
+        upload_id = query_options.get('upload_id', [None])[0]
+        path = query_options.get('path', [None])[0]
+
+        if upload_id:
+            options["upload_id"] = upload_id
+        if path:
+            options["path"] = path
+
+        return options
+
     def run_options_from_form(self, form_options):
         print(form_options)
 
@@ -312,27 +325,52 @@ class NORTHSpawner(DockerSpawner):
                     )
                     profile.use_gpu = False
 
-        api_url = f"{spawner.nomad_api_url}/north/mounts/{spawner.name}"
-        api_headers = {
-            "Authorization": f"Bearer {spawner.user_options.get('access_token')}"}
+            api_url = f"{spawner.nomad_api_url}/north/mounts/{spawner.name}"
+            api_headers = {
+                "Authorization": f"Bearer {spawner.user_options.get('access_token')}"}
 
-        response = requests.get(api_url, headers=api_headers)
+            response = requests.get(api_url, headers=api_headers)
 
-        mounts = []
-        upload_ids = {}
-        for mount in response.json():
-            mounts.append({
-                'type': 'bind',
-                'source': mount['source'],
-                'target': mount['target'],
-                'read_only': mount['mode'] != 'rw'
-            })
-            if 'upload_id' in mount and mount['upload_id'] is not None:
-                upload_ids[mount['upload_id']] = mount['target']
+            mounts = []
+            upload_ids = {}
+            for mount in response.json():
+                mounts.append({
+                    'type': 'bind',
+                    'source': mount['source'],
+                    'target': mount['target'],
+                    'read_only': mount['mode'] != 'rw'
+                })
+                if 'upload_id' in mount and mount['upload_id'] is not None:
+                    mount_path = profile.mount_path or ''
+                    upload_ids[mount['upload_id']] = mount['target'][len(mount_path):]
 
-        spawner.mounts = mounts
-        spawner.user_options["upload_ids"] = upload_ids
+            spawner.mounts = mounts
+            spawner.user_options["upload_ids"] = upload_ids
 
+
+            # Read URL parameters stored in user_options
+            upload_id = spawner.user_options.get('upload_id')
+            rel_path = spawner.user_options.get('path')
+
+            if profile.with_path and upload_id and upload_id in upload_ids:
+                
+                if rel_path:
+                    full_path = os.path.join(upload_ids[upload_id], rel_path.lstrip('/'))
+                else:
+                    full_path = upload_ids[upload_id]
+
+                # Determine route prefix (e.g. use path_prefix eg: "lab/tree" )
+                prefix = profile.path_prefix.strip('/')
+                spawner.default_url = f"/{prefix}/{full_path.lstrip('/')}"
+
+            else:
+                # Standard landing page without explicit path deep-linking
+                spawner.default_url = profile.default_url
+
+            spawner.log.info(
+                f"[NORTH pre_spawn_hook] Profile: '{profile.slug}' | "
+                f"Resolved default_url: '{spawner.default_url}'"
+            )
 
 
 async def user_redirect_hook(path, request, user, base_url):
