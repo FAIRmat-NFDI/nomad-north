@@ -241,23 +241,6 @@ class NORTHSpawner(DockerSpawner):
 
         return options
 
-    # def options_from_query(self, query_options):
-    #     options = super().options_from_query(query_options)
-
-    #     upload_id = query_options.get('upload_id', [None])[0]
-    #     path = query_options.get('path', [None])[0]
-
-    #     if upload_id:
-    #         options["upload_id"] = upload_id
-    #     if path:
-    #         options["path"] = path
-
-    #     self.log.info(f"[NORTH options_from_query] upload_id: {upload_id}, path: {path}")
-
-        return options
-
-    # def run_options_from_form(self, form_options):
-    #     self.log.info(f"[NORTH run_options_from_form] form_options: {form_options}")
 
     def _get_profile(self, slug: str):
         """
@@ -362,24 +345,24 @@ class NORTHSpawner(DockerSpawner):
             spawner.user_options["upload_ids"] = upload_ids
 
 
-            # Read URL parameters stored in user_options
-            upload_id = spawner.user_options.get('upload_id')
-            rel_path = spawner.user_options.get('path')
+            # # Read URL parameters stored in user_options
+            # upload_id = spawner.user_options.get('upload_id')
+            # rel_path = spawner.user_options.get('path')
 
-            if profile.with_path and upload_id and upload_id in upload_ids:
+            # if profile.with_path and upload_id and upload_id in upload_ids:
                 
-                if rel_path:
-                    full_path = os.path.join(upload_ids[upload_id], rel_path.lstrip('/'))
-                else:
-                    full_path = upload_ids[upload_id]
+            #     if rel_path:
+            #         full_path = os.path.join(upload_ids[upload_id], rel_path.lstrip('/'))
+            #     else:
+            #         full_path = upload_ids[upload_id]
 
-                # Determine route prefix (e.g. use path_prefix eg: "lab/tree" )
-                prefix = profile.path_prefix.strip('/')
-                spawner.default_url = f"/{prefix}/{full_path.lstrip('/')}"
+            #     # Determine route prefix (e.g. use path_prefix eg: "lab/tree" )
+            #     prefix = profile.path_prefix.strip('/')
+            #     spawner.default_url = f"/{prefix}/{full_path.lstrip('/')}"
 
-            else:
-                # Standard landing page without explicit path deep-linking
-                spawner.default_url = profile.default_url
+            
+            # Standard landing page without explicit path deep-linking
+            spawner.default_url = profile.default_url
 
             spawner.log.info(
                 f"[NORTH pre_spawn_hook] Profile: '{profile.slug}' | "
@@ -392,6 +375,7 @@ async def user_redirect_hook(path, request, user, base_url):
     Instead of using default server the first path must be
     the name of the named server
     """
+    # Get name of the server from the path and the query parameters
     server_name = path.split("/", 1)[0]
     query = parse_qs(request.query)
 
@@ -399,15 +383,9 @@ async def user_redirect_hook(path, request, user, base_url):
     spawner = user.spawners.get(server_name) or user.get_spawner(server_name)
     profile = spawner._get_profile(spawner.name)
 
-    spawner.log.info(
-        f"[NORTH user_redirect_hook] path={path} query={query} base_url={base_url} user_url={user.url}"
-    )
-    spawner.log.info(
-        f"[NORTH user_redirect_hook] path={path} server_name={server_name} profil={profile}"
-    )
-    spawner.log.info(
-        f"[NORTH user_redirect_hook] path={path} server_name={server_name} spawner.ready={spawner.ready} spawner.active={spawner.active} spawner.pending={spawner.pending} spawner.user_options={spawner.user_options}"
-    )
+    spawner.log.info(f"[NORTH user_redirect_hook] path={path} query={query} base_url={base_url} user_url={user.url}")
+    spawner.log.info(f"[NORTH user_redirect_hook] path={path} server_name={server_name} profil={profile}")
+    spawner.log.info(f"[NORTH user_redirect_hook] path={path} server_name={server_name} spawner.ready={spawner.ready} spawner.active={spawner.active} spawner.pending={spawner.pending} spawner.user_options={spawner.user_options}")
 
     next_url = os.path.join(user.url, server_name)
 
@@ -422,10 +400,9 @@ async def user_redirect_hook(path, request, user, base_url):
                 upload_ids[upload_id].lstrip("/"), 
                 rel_path.lstrip("/")
             )
-    # else:
-    #     next_url = os.path.join(next_url, profile.default_url.lstrip("/"))
     
     # If the server is stopped, forward to spawn flow
+    
     if not spawner.ready:
         url = url_path_join(
             base_url,
@@ -437,17 +414,13 @@ async def user_redirect_hook(path, request, user, base_url):
         if next_url:
             url = url_concat(url, {"next": next_url})
 
-        spawner.log.info(
-            f"[NORTH user_redirect_hook] server_name={server_name} NOT READY, url: {url}"
-        )
+        spawner.log.info(f"[NORTH user_redirect_hook] NOT READY, url: {url}")
 
         return url
  
-    # (Handle active server redirect here if already running...)
-
-    spawner.log.info(
-        f"[NORTH user_redirect_hook] path={path} server_name={server_name} next_url={next_url}"
-    )
+    # If the server is already running
+    
+    spawner.log.info(f"[NORTH user_redirect_hook] READY next_url={next_url}")
 
     return next_url
 
