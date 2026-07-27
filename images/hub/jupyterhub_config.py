@@ -184,8 +184,8 @@ class NORTHSpawner(DockerSpawner):
                     file_extensions=tool['file_extensions'],
                     mount_path=tool['mount_path'],
                     icon=tool['icon'],
-                    maintainer=tool['maintainer'],
-                    external_mounts=tool['external_mounts']
+                    maintainer=[NORTHToolMaintainer(**m) for m in tool['maintainer']],
+                    external_mounts=[NORTHExternalMount(**m) for m in tool['external_mounts']]  
                 )
             )
         return profile_list
