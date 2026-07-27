@@ -15,6 +15,10 @@ from pydantic_settings import BaseSettings
 from dockerspawner import DockerSpawner
 from jupyterhub.utils import url_path_join
 
+import logging
+
+logger = logging.getLogger(__name__)
+
 c = get_config()  # type: ignore # noqa: F821
 
 if 'JUPYTERHUB_CRYPT_KEY' not in os.environ:
@@ -390,6 +394,9 @@ async def user_redirect_hook(path, request, user, base_url):
     """
     server_name = path.split("/", 1)[0]
 
+    # Get or instantiate the spawner for this server
+    spawner = user.spawners.get(server_name) or user.get_spawner(server_name)
+
     user_url = url_path_join(user.url, path)
 
     if request.query:
@@ -405,7 +412,7 @@ async def user_redirect_hook(path, request, user, base_url):
         {"next": user_url},
     )
 
-    print(
+    spawner.log.info(
         f"[NORTH user_redirect_hook] path={path} server_name={server_name} "
         f"user={user.name} next_url={url}"
     )
