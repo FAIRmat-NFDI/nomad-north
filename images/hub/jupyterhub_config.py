@@ -369,49 +369,49 @@ def apply_user_options(spawner, user_options):
     Returns:
         None
     """
+    if not spawner.name:
+        profile_slug = user_options.get("profile", None)
 
-    profile_slug = user_options.get("profile", None)
+        profile = spawner._get_profile(profile_slug)
+        spawner.image = profile.image
+        spawner.default_url = profile.default_url
 
-    profile = spawner._get_profile(profile_slug)
-    spawner.image = profile.image
-    spawner.default_url = profile.default_url
+        if profile.image_pull_policy:
+            spawner.pull_policy = profile.image_pull_policy
 
-    if profile.image_pull_policy:
-        spawner.pull_policy = profile.image_pull_policy
+        if profile.cmd:
+            spawner.cmd = profile.cmd
 
-    if profile.cmd:
-        spawner.cmd = profile.cmd
+        if profile.privileged:
+            spawner.extra_host_config['privileged'] = True
 
-    if profile.privileged:
-        spawner.extra_host_config['privileged'] = True
+        if profile.seccomp_unconfined:
+            spawner.extra_host_config['security_opt'] = ['seccomp=unconfined']
 
-    if profile.seccomp_unconfined:
-        spawner.extra_host_config['security_opt'] = ['seccomp=unconfined']
+        if profile.use_gpu:
+            import docker
 
-    if profile.use_gpu:
-        import docker
-
-        # Check if any GPUs are available
-        nvidia_version_path = '/proc/driver/nvidia/version'
-        if os.path.exists(nvidia_version_path):
-            with open(nvidia_version_path) as file:
-                version_info = file.read()
-            spawner.log.info(
-                f'Enabling nvidia driver with driver info:\n{version_info}.'
-            )
-            spawner.extra_host_config['device_requests'] = [
-                docker.types.DeviceRequest(  # type: ignore
-                    count=-1,
-                    capabilities=[['gpu']],
-                ),
-            ]
-        else:
-            spawner.log.warning(
-                'GPU requested but no nvidia driver found on host. Disabling GPU usage for this container.'
-            )
-            profile.use_gpu = False
-    
-    spawner.log.info(f"[NORTH apply_user_options] profile_slug: {profile_slug}")
+            # Check if any GPUs are available
+            nvidia_version_path = '/proc/driver/nvidia/version'
+            if os.path.exists(nvidia_version_path):
+                with open(nvidia_version_path) as file:
+                    version_info = file.read()
+                spawner.log.info(
+                    f'Enabling nvidia driver with driver info:\n{version_info}.'
+                )
+                spawner.extra_host_config['device_requests'] = [
+                    docker.types.DeviceRequest(  # type: ignore
+                        count=-1,
+                        capabilities=[['gpu']],
+                    ),
+                ]
+            else:
+                spawner.log.warning(
+                    'GPU requested but no nvidia driver found on host. Disabling GPU usage for this container.'
+                )
+                profile.use_gpu = False
+        
+        spawner.log.info(f"[NORTH apply_user_options] profile_slug: {profile_slug}")
 
 
 
