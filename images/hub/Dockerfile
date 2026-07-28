@@ -5,7 +5,7 @@ RUN python3 -m pip install --no-cache \
     dockerspawner \
     oauthenticator \
     pydantic_settings \ 
-    markdown2 
+    markdown
 
 COPY logo /srv/jupyterhub/logo
 COPY templates /srv/jupyterhub/templates
