@@ -13,7 +13,7 @@
       </div>
       <div>
         <h3>{{ profile.display_name }}</h3>
-        {%- if profile.description %}<p>{{ profile.description | markdown | safe }}</p>{%- endif %}
+        {%- if profile.description %}<p>{{ profile.short_description | markdown | safe }}</p>{%- endif %}
       </div>
     </label>
   {%- endfor %}

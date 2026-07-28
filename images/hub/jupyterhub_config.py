@@ -410,28 +410,6 @@ def apply_user_options(spawner, user_options):
                 'GPU requested but no nvidia driver found on host. Disabling GPU usage for this container.'
             )
             profile.use_gpu = False
-
-    api_url = f"{spawner.nomad_api_url}/north/mounts/{profile_slug}"
-    api_headers = {
-        "Authorization": f"Bearer {spawner.user_options.get('access_token')}"}
-
-    response = requests.get(api_url, headers=api_headers)
-
-    mounts = []
-    upload_ids = {}
-    for mount in response.json():
-        mounts.append({
-            'type': 'bind',
-            'source': mount['source'],
-            'target': mount['target'],
-            'read_only': mount['mode'] != 'rw'
-        })
-        if 'upload_id' in mount and mount['upload_id'] is not None:
-            mount_path = profile.mount_path or ''
-            upload_ids[mount['upload_id']] = mount['target'][len(mount_path):]
-
-    spawner.mounts = mounts
-    spawner.user_options["upload_ids"] = upload_ids
     
     spawner.log.info(f"[NORTH apply_user_options] profile_slug: {profile_slug}")
 
