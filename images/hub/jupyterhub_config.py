@@ -241,6 +241,25 @@ class NORTHSpawner(DockerSpawner):
 
         return options
 
+    def apply_user_options(self, options):
+        """Called by jupyterhub when processing a request to spawn a server, where
+        the user either have submitted a POST request via a form or submitted a
+        GET request with query parameters.
+
+        Args:
+            options: user selection returned by the form
+
+        Returns:
+            None
+        """
+
+        profile_slug = options.get("profile", None)
+
+        if profile_slug:
+            self.name = profile_slug
+
+        self.log.info(f"[NORTH apply_user_options] profile_slug: {profile_slug}")
+
 
     def _get_profile(self, slug: str):
         """
@@ -277,6 +296,10 @@ class NORTHSpawner(DockerSpawner):
 
     @default('pre_spawn_hook')
     def _pre_spawn_hook(spawner):
+
+        spawner.log.info(
+            f"[NORTH pre_spawn_hook] spawner.name: {spawner.name} user_options: {spawner.user_options}"
+        )
 
         if spawner.name:
             if spawner.name not in [p.slug for p in spawner.profile_list]:
