@@ -568,7 +568,7 @@ c.JupyterHub.spawner_class = NORTHSpawner
 
 
 # For debugging arguments passed to spawned containers
-c.DockerSpawner.debug = True
+c.DockerSpawner.debug = False
 
 
 # Remove containers once they are stopped
