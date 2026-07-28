@@ -13,7 +13,7 @@
       </div>
       <div>
         <h3>{{ profile.display_name }}</h3>
-        {%- if profile.description %}<p>{{ profile.description }}</p>{%- endif %}
+        {%- if profile.description %}<p>{{ profile.description | markdown }}</p>{%- endif %}
       </div>
     </label>
   {%- endfor %}

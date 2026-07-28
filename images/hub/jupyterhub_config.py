@@ -176,8 +176,8 @@ class NORTHSpawner(DockerSpawner):
                 Profile(
                     slug=tool['name'],
                     display_name=tool['name'],
-                    short_description=markdown(tool['short_description']),
-                    description=markdown(tool['description']),
+                    short_description=tool['short_description'],
+                    description=tool['description'],
                     image=tool['image'],
                     default_url=tool['default_url'],
                     image_pull_policy=tool['image_pull_policy'],
@@ -349,9 +349,6 @@ class NORTHSpawner(DockerSpawner):
             spawner.mounts = mounts
             spawner.user_options["upload_ids"] = upload_ids
             
-            # Standard landing page without explicit path deep-linking
-            spawner.default_url = profile.default_url
-
             spawner.log.info(
                 f"[NORTH pre_spawn_hook] Profile: '{profile.slug}' | "
                 f"Resolved default_url: '{spawner.default_url}'"
@@ -411,7 +408,7 @@ def apply_user_options(spawner, user_options):
             )
             profile.use_gpu = False
 
-    api_url = f"{spawner.nomad_api_url}/north/mounts/{spawner.name}"
+    api_url = f"{spawner.nomad_api_url}/north/mounts/{profile_slug}"
     api_headers = {
         "Authorization": f"Bearer {spawner.user_options.get('access_token')}"}
 
@@ -433,9 +430,6 @@ def apply_user_options(spawner, user_options):
     spawner.mounts = mounts
     spawner.user_options["upload_ids"] = upload_ids
     
-    # Standard landing page without explicit path deep-linking
-    spawner.default_url = profile.default_url
-
     spawner.log.info(f"[NORTH apply_user_options] profile_slug: {profile_slug}")
 
 
