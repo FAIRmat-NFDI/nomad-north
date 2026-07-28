@@ -241,25 +241,6 @@ class NORTHSpawner(DockerSpawner):
 
         return options
 
-    def apply_user_options(self, options):
-        """Called by jupyterhub when processing a request to spawn a server, where
-        the user either have submitted a POST request via a form or submitted a
-        GET request with query parameters.
-
-        Args:
-            options: user selection returned by the form
-
-        Returns:
-            None
-        """
-
-        profile_slug = options.get("profile", None)
-
-        if profile_slug:
-            self.name = profile_slug
-
-        self.log.info(f"[NORTH apply_user_options] profile_slug: {profile_slug}")
-
 
     def _get_profile(self, slug: str):
         """
@@ -375,6 +356,27 @@ class NORTHSpawner(DockerSpawner):
                 f"Resolved default_url: '{spawner.default_url}'"
             )
 
+def apply_user_options(spawner, user_options):
+    """Called by jupyterhub when processing a request to spawn a server, where
+    the user either have submitted a POST request via a form or submitted a
+    GET request with query parameters.
+
+    Args:
+        spawner: The spawner instance
+        user_options: User selection returned by the form
+
+    Returns:
+        None
+    """
+
+    profile_slug = user_options.get("profile", None)
+
+    if profile_slug:
+        spawner.name = profile_slug
+
+    spawner.log.info(f"[NORTH apply_user_options] profile_slug: {profile_slug}")
+
+
 
 async def user_redirect_hook(path, request, user, base_url):
     """Changing the the behavior of /user-redirect/ url
@@ -466,6 +468,8 @@ c.JupyterHub.logo_file = "/srv/jupyterhub/logo/nomad_logo.svg"
 
 c.JupyterHub.authenticator_class = "generic-oauth"
 c.JupyterHub.user_redirect_hook = user_redirect_hook
+c.Spawner.apply_user_options = apply_user_options
+
 
 c.Authenticator.allow_all = True
 c.Authenticator.auto_login = True
