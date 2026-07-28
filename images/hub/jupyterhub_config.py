@@ -7,11 +7,10 @@ from enum import Enum
 from traitlets import default
 from tornado import web
 from tornado.httputil import url_concat
-from urllib.parse import parse_qsl, parse_qs
+from urllib.parse import parse_qs
 from jinja2 import Environment, FileSystemLoader
 from pydantic import BaseModel, Field
 from pydantic_settings import BaseSettings
-from markdown2 import markdown
 
 from dockerspawner import DockerSpawner
 from jupyterhub.utils import url_path_join
