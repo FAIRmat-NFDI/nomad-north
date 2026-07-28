@@ -9,6 +9,8 @@ from tornado import web
 from tornado.httputil import url_concat
 from urllib.parse import parse_qs
 from jinja2 import Environment, FileSystemLoader
+from jinjaMarkdown.markdownExtension import markdownExtension
+
 from pydantic import BaseModel, Field
 from pydantic_settings import BaseSettings
 
@@ -209,6 +211,8 @@ class NORTHSpawner(DockerSpawner):
 
         loader = FileSystemLoader('/srv/jupyterhub/templates')
         env = Environment(loader=loader)
+
+        env.add_extension(markdownExtension)
 
         # jinja2's tojson sorts keys in dicts by default.
         env.policies["json.dumps_kwargs"] = {"sort_keys": False}
