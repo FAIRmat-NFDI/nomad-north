@@ -11,6 +11,7 @@ from urllib.parse import parse_qsl, parse_qs
 from jinja2 import Environment, FileSystemLoader
 from pydantic import BaseModel, Field
 from pydantic_settings import BaseSettings
+from markdown2 import markdown
 
 from dockerspawner import DockerSpawner
 from jupyterhub.utils import url_path_join
@@ -175,8 +176,8 @@ class NORTHSpawner(DockerSpawner):
                 Profile(
                     slug=tool['name'],
                     display_name=tool['name'],
-                    short_description=tool['short_description'],
-                    description=tool['description'],
+                    short_description=markdown(tool['short_description']),
+                    description=markdown(tool['description']),
                     image=tool['image'],
                     default_url=tool['default_url'],
                     image_pull_policy=tool['image_pull_policy'],
