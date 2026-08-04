@@ -1,3 +1,4 @@
+import asyncio
 import os
 
 import requests
@@ -6,7 +7,8 @@ import functools
 from traitlets import default
 from tornado import web
 from tornado.httputil import url_concat
-from urllib.parse import parse_qsl
+from tornado.log import app_log
+from urllib.parse import parse_qsl, quote
 from jinja2 import Environment, FileSystemLoader
 from pydantic import BaseModel, Field
 from pydantic_settings import BaseSettings
@@ -189,6 +191,62 @@ class NORTHSpawner(DockerSpawner):
         spawner.user_options["upload_ids"] = upload_ids
 
 
+async def _resolve_upload_path(user, tool_name, upload_id, file_path):
+    def fetch(access_token):
+        tool = requests.get(
+            f"{config.nomad_api_url}/north/tools/{tool_name}", timeout=10
+        ).json()
+        if not tool.get("with_path") or not tool.get("path_prefix"):
+            return None, None
+
+        # `north/mounts` is per user, so it needs the user's own access token.
+        mounts = requests.get(
+            f"{config.nomad_api_url}/north/mounts/{tool_name}",
+            headers={"Authorization": f"Bearer {access_token}"},
+            timeout=10,
+        ).json()
+        return tool, mounts
+
+    try:
+        auth_state = await user.get_auth_state() or {}
+        access_token = auth_state.get("access_token")
+        if not access_token:
+            return None
+
+        # `requests` is blocking; keep it off the hub's event loop.
+        tool, mounts = await asyncio.to_thread(fetch, access_token)
+        if not tool:
+            return None
+
+        target = next(
+            (m["target"] for m in mounts if m.get("upload_id") == upload_id), None
+        )
+        if not target:
+            # Not an upload this user can see, or not mounted for this tool.
+            return None
+
+        # `target` is absolute inside the container (e.g.
+        # `/home/jovyan/uploads/my-upload-<id>`), while the tool serves paths
+        # relative to its `mount_path`.
+        mount_path = (tool.get("mount_path") or "").rstrip("/")
+        if not mount_path or not target.startswith(f"{mount_path}/"):
+            return None
+
+        return url_path_join(
+            tool["path_prefix"],
+            quote(target[len(mount_path) + 1:]),
+            quote(file_path or ""),
+        )
+    except Exception:
+        app_log.warning(
+            "could not resolve upload %s for tool %s, opening the tool without it",
+            upload_id,
+            tool_name,
+            exc_info=True,
+        )
+        return None
+
+
 async def user_redirect_hook(path, request, user, base_url):
     """Changing the the behavior of /user-redirect/ url
     Instead of using default server the first path must be
@@ -196,10 +254,24 @@ async def user_redirect_hook(path, request, user, base_url):
     """
     server_name = path.split("/", 1)[0]
 
+    query = parse_qsl(request.query) if request.query else []
+    upload_id = next((value for key, value in query if key == "upload_id"), None)
+
+    if upload_id:
+        file_path = next((value for key, value in query if key == "path"), None)
+        upload_path = await _resolve_upload_path(
+            user, server_name, upload_id, file_path
+        )
+        if upload_path:
+            path = url_path_join(path, upload_path)
+            query = [
+                (key, value) for key, value in query if key not in ("upload_id", "path")
+            ]
+
     user_url = url_path_join(user.url, path)
 
-    if request.query:
-        user_url = url_concat(user_url, parse_qsl(request.query))
+    if query:
+        user_url = url_concat(user_url, query)
 
     url = url_concat(
         url_path_join(
