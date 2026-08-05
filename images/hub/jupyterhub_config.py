@@ -3,16 +3,24 @@ import os
 import requests
 import functools
 
+from enum import Enum
 from traitlets import default
 from tornado import web
 from tornado.httputil import url_concat
-from urllib.parse import parse_qsl
+from urllib.parse import parse_qs
 from jinja2 import Environment, FileSystemLoader
+from jinjaMarkdown.markdownExtension import markdownExtension
+from typing import ClassVar
+
 from pydantic import BaseModel, Field
 from pydantic_settings import BaseSettings
 
 from dockerspawner import DockerSpawner
 from jupyterhub.utils import url_path_join
+
+import logging
+
+logger = logging.getLogger(__name__)
 
 c = get_config()  # type: ignore # noqa: F821
 
@@ -20,14 +28,111 @@ if 'JUPYTERHUB_CRYPT_KEY' not in os.environ:
     os.environ["JUPYTERHUB_CRYPT_KEY"] = os.urandom(32).hex()
 
 
+class NORTHToolMaintainer(BaseModel):
+    name: str
+    email: str
+
+
+class ReadMode(str, Enum):
+    ro = 'ro'
+    rw = 'rw'
+
+
+class NORTHExternalMount(BaseModel):
+    host_path: str
+    bind: str
+    mode: ReadMode = ReadMode.ro
+
+
 class Profile(BaseModel):
-    display_name: str = Field(..., description="Name of the profile")
-    default: bool = Field(False, description="Is this the default profile?")
-    description: str = Field(..., description="Description of the profile")
     slug: str = Field(..., description="Slug for the profile")
-    image: str = Field(..., description="Docker image for the profile")
-    default_url: str = Field(
-        "/lab", description="Default URL to open when the profile is started")
+    default: bool = Field(False, description="Is this the default profile?")
+    display_name: str = Field(..., description="Name of the profile")
+    short_description: str = Field(
+        ...,
+        description='A short description of the tool, e.g. shown in the NOMAD GUI.',
+    )
+    description: str | None= Field(
+        None, 
+        description='A description of the tool, e.g. shown in the NOMAD GUI.'
+    )
+    image: str = Field(
+        ..., 
+        description="The docker image (incl. tags) to use for the tool."
+    )
+    default_url: str | None = Field(
+        "/lab",
+        description=(
+            'An optional path prefix that is added to the container URL to '
+            'reach the tool, e.g. "/lab" for jupyterlab.'
+        ),
+    )
+    image_pull_policy: str = Field(
+        'always', 
+        description='The image pull policy used in k8s deployments.'
+    )
+    cmd: str | None = Field(
+        None, 
+        description='The container cmd that is passed to the spawner.'
+    )
+    privileged: bool = Field(
+        False, 
+        description='Whether the tool needs to run in privileged mode.'
+    )
+    seccomp_unconfined: bool = Field(
+        False, 
+        description='Whether the tool runs with seccomp=unconfined.'
+    )
+    use_gpu: bool = Field(
+        False,
+        description='Whether the tool is provided access to available GPU resources.',
+    )
+    path_prefix: str = Field(
+        'lab/tree',
+        description=(
+            'An optional path prefix that is added to the container URL to '
+            'reach the files, e.g. "lab/tree" for jupyterlab.'
+        ),
+    )
+    with_path: bool = Field(
+        False,
+        description=(
+            'Whether the path of the file or directory the tool was launched '
+            'from is forwarded to the tool so it can open or deep-link to that '
+            'item. When enabled, the launcher passes the item path to the tool: '
+            'in the old hub it is appended to the tool URL via `path_prefix` '
+            '(e.g. `lab/tree/<path>` for JupyterLab); in the new hub it is sent '
+            'as `upload_id`/`path` query parameters for a handler inside the '
+            'tool image to consume. Only meaningful for tools that can open a '
+            'file from a URL (e.g. JupyterLab); set to False for tools that '
+            'cannot, such as desktop (noVNC) apps like VESTA or FIJI. This does '
+            'NOT control whether the tool is offered for a file in the NOMAD '
+            'UI. That is determined solely by `file_extensions`.'
+        ),
+    )
+    file_extensions: list[str] = Field(
+        [],
+        description='The file extensions of files that this tool should be launchable for.',
+    )
+    mount_path: str = Field(
+        "/home/jovyan",
+        description=(
+            'The path in the container where uploads and work directories will be mounted, '
+            'e.g. /home/jovyan for Jupyter containers.'
+        ),
+    )
+    icon: str | None = Field(
+        None,
+        description='A URL to an icon that is used to represent the tool in the NOMAD UI.',
+    )
+    maintainer: list[NORTHToolMaintainer] = Field(
+        [], description='The maintainers of the tool.'
+    )
+    external_mounts: list[NORTHExternalMount] = Field(
+        [], description='Additional mounts to be added to tool containers.'
+    )
+
+Profile.model_rebuild()
 
 
 class Config(BaseSettings):
@@ -55,30 +160,42 @@ class Config(BaseSettings):
     service_api_token: str = Field(
         "", description="API token for the Nomad service")
 
-
 config = Config()
+
+def get_profile_list(nomad_api_url):
+    api_url = f"{nomad_api_url}/north/tools/"
+    response = requests.get(api_url)
+    profile_list = []
+    for tool in response.json():
+        profile_list.append(
+            Profile(
+                slug=tool['name'],
+                display_name=tool['name'],
+                short_description=tool['short_description'],
+                description=tool['description'],
+                image=tool['image'],
+                default_url=tool['default_url'],
+                image_pull_policy=tool['image_pull_policy'],
+                cmd=tool['cmd'],
+                privileged=tool['privileged'],
+                seccomp_unconfined=tool['seccomp_unconfined'],
+                use_gpu=tool['use_gpu'],
+                path_prefix=tool['path_prefix'],
+                with_path=tool['with_path'],
+                file_extensions=tool['file_extensions'],
+                mount_path=tool['mount_path'],
+                icon=tool['icon'],
+                maintainer=[NORTHToolMaintainer(**m) for m in tool['maintainer']],
+                external_mounts=[NORTHExternalMount(**m) for m in tool['external_mounts']]  
+            )
+        )
+    return profile_list
 
 
 class NORTHSpawner(DockerSpawner):
 
-    nomad_api_url = config.nomad_api_url
-
-    @functools.cached_property
-    def profile_list(self):
-        api_url = f"{self.nomad_api_url}/north/tools/"
-        response = requests.get(api_url)
-        profile_list = []
-        for tool in response.json():
-            profile_list.append(
-                Profile(
-                    display_name=tool['name'],
-                    description=tool['short_description'],
-                    slug=tool['name'],
-                    image=tool['image'],
-                    default_url=tool['default_url']
-                )
-            )
-        return profile_list
+    nomad_api_url: ClassVar[str] = config.nomad_api_url
+    profile_list: ClassVar[list[Profile]] = get_profile_list(config.nomad_api_url)
 
     def _options_form_default(self):
         """Custom option form callable function to only show profiles
@@ -94,6 +211,8 @@ class NORTHSpawner(DockerSpawner):
 
         loader = FileSystemLoader('/srv/jupyterhub/templates')
         env = Environment(loader=loader)
+
+        env.add_extension(markdownExtension)
 
         # jinja2's tojson sorts keys in dicts by default.
         env.policies["json.dumps_kwargs"] = {"sort_keys": False}
@@ -122,10 +241,10 @@ class NORTHSpawner(DockerSpawner):
         if profile_slug:
             options["profile"] = profile_slug
 
+        self.log.info(f"[NORTH options_from_form] profile_slug: {profile_slug}")
+
         return options
 
-    def run_options_from_form(self, form_options):
-        print(form_options)
 
     def _get_profile(self, slug: str):
         """
@@ -155,8 +274,17 @@ class NORTHSpawner(DockerSpawner):
 
         spawner.user_options["access_token"] = auth_state["access_token"]
 
+        spawner.log.info(
+            f"[NORTH auth_state_hook] access_token: {spawner.user_options['access_token']}"
+        )
+
+
     @default('pre_spawn_hook')
     def _pre_spawn_hook(spawner):
+
+        spawner.log.info(
+            f"[NORTH pre_spawn_hook] spawner.name: {spawner.name} user_options: {spawner.user_options}"
+        )
 
         if spawner.name:
             if spawner.name not in [p.slug for p in spawner.profile_list]:
@@ -167,26 +295,132 @@ class NORTHSpawner(DockerSpawner):
             spawner.image = profile.image
             spawner.default_url = profile.default_url
 
-        api_url = f"{spawner.nomad_api_url}/north/mounts/{spawner.name}"
-        api_headers = {
-            "Authorization": f"Bearer {spawner.user_options.get('access_token')}"}
+            if profile.image_pull_policy:
+                spawner.pull_policy = profile.image_pull_policy
 
-        response = requests.get(api_url, headers=api_headers)
+            if profile.cmd:
+                spawner.cmd = profile.cmd
 
-        mounts = []
-        upload_ids = {}
-        for mount in response.json():
-            mounts.append({
-                'type': 'bind',
-                'source': mount['source'],
-                'target': mount['target'],
-                'read_only': mount['mode'] != 'rw'
-            })
-            if 'upload_id' in mount and mount['upload_id'] is not None:
-                upload_ids[mount['upload_id']] = mount['target']
+            if profile.privileged:
+                spawner.extra_host_config['privileged'] = True
 
-        spawner.mounts = mounts
-        spawner.user_options["upload_ids"] = upload_ids
+            if profile.seccomp_unconfined:
+                spawner.extra_host_config['security_opt'] = ['seccomp=unconfined']
+
+            if profile.use_gpu:
+                import docker
+
+                # Check if any GPUs are available
+                nvidia_version_path = '/proc/driver/nvidia/version'
+                if os.path.exists(nvidia_version_path):
+                    with open(nvidia_version_path) as file:
+                        version_info = file.read()
+                    spawner.log.info(
+                        f'Enabling nvidia driver with driver info:\n{version_info}.'
+                    )
+                    spawner.extra_host_config['device_requests'] = [
+                        docker.types.DeviceRequest(  # type: ignore
+                            count=-1,
+                            capabilities=[['gpu']],
+                        ),
+                    ]
+                else:
+                    spawner.log.warning(
+                        'GPU requested but no nvidia driver found on host. Disabling GPU usage for this container.'
+                    )
+                    profile.use_gpu = False
+
+            api_url = f"{spawner.nomad_api_url}/north/mounts/{spawner.name}"
+            api_headers = {
+                "Authorization": f"Bearer {spawner.user_options.get('access_token')}"}
+
+            response = requests.get(api_url, headers=api_headers)
+
+            mounts = []
+            upload_ids = {}
+            for mount in response.json():
+                if 'upload_id' in mount and mount['upload_id'] is not None:
+                    upload_id = mount['upload_id']
+                    mount_path = profile.mount_path
+                    mounts.append({
+                        'type': 'bind',
+                        'source': mount['source'],
+                        'target': os.path.join(mount_path, 'uploads', upload_id),
+                        'read_only': mount['mode'] != 'rw'
+                    })
+                    upload_ids[upload_id] = mount['target'][len(mount_path):]
+                else:
+                    mounts.append({
+                        'type': 'bind',
+                        'source': mount['source'],
+                        'target': mount['target'],
+                        'read_only': mount['mode'] != 'rw'
+                    })
+
+            spawner.mounts = mounts
+            spawner.user_options["upload_ids"] = upload_ids
+            
+            spawner.log.info(
+                f"[NORTH pre_spawn_hook] Profile: '{profile.slug}' | "
+                f"Resolved default_url: '{spawner.default_url}'"
+            )
+
+def apply_user_options(spawner, user_options):
+    """Called by jupyterhub when processing a request to spawn a server, where
+    the user either have submitted a POST request via a form or submitted a
+    GET request with query parameters.
+
+    Args:
+        spawner: The spawner instance
+        user_options: User selection returned by the form
+
+    Returns:
+        None
+    """
+    if not spawner.name:
+        profile_slug = user_options.get("profile", None)
+
+        profile = spawner._get_profile(profile_slug)
+        spawner.image = profile.image
+        spawner.default_url = profile.default_url
+
+        if profile.image_pull_policy:
+            spawner.pull_policy = profile.image_pull_policy
+
+        if profile.cmd:
+            spawner.cmd = profile.cmd
+
+        if profile.privileged:
+            spawner.extra_host_config['privileged'] = True
+
+        if profile.seccomp_unconfined:
+            spawner.extra_host_config['security_opt'] = ['seccomp=unconfined']
+
+        if profile.use_gpu:
+            import docker
+
+            # Check if any GPUs are available
+            nvidia_version_path = '/proc/driver/nvidia/version'
+            if os.path.exists(nvidia_version_path):
+                with open(nvidia_version_path) as file:
+                    version_info = file.read()
+                spawner.log.info(
+                    f'Enabling nvidia driver with driver info:\n{version_info}.'
+                )
+                spawner.extra_host_config['device_requests'] = [
+                    docker.types.DeviceRequest(  # type: ignore
+                        count=-1,
+                        capabilities=[['gpu']],
+                    ),
+                ]
+            else:
+                spawner.log.warning(
+                    'GPU requested but no nvidia driver found on host. Disabling GPU usage for this container.'
+                )
+                profile.use_gpu = False
+        
+        spawner.log.info(f"[NORTH apply_user_options] profile_slug: {profile_slug}")
+
 
 
 async def user_redirect_hook(path, request, user, base_url):
@@ -194,23 +428,46 @@ async def user_redirect_hook(path, request, user, base_url):
     Instead of using default server the first path must be
     the name of the named server
     """
+    # Get name of the server from the path and the query parameters
     server_name = path.split("/", 1)[0]
+    query = parse_qs(request.query)
 
-    user_url = url_path_join(user.url, path)
+    # Get or instantiate the spawner for this server
+    spawner = user.spawners.get(server_name) or user.get_spawner(server_name)
+    profile = spawner._get_profile(spawner.name)
 
-    if request.query:
-        user_url = url_concat(user_url, parse_qsl(request.query))
+    spawner.log.info(f"[NORTH user_redirect_hook] path={path} query={query} base_url={base_url} user_url={user.url}")
+    spawner.log.info(f"[NORTH user_redirect_hook] path={path} server_name={server_name} profil={profile}")
+    spawner.log.info(f"[NORTH user_redirect_hook] path={path} server_name={server_name} spawner.ready={spawner.ready} spawner.active={spawner.active} spawner.pending={spawner.pending} spawner.user_options={spawner.user_options}")
 
-    url = url_concat(
-        url_path_join(
-            base_url,
-            "spawn",
-            user.escaped_name,
-            server_name,
-        ),
-        {"next": user_url},
-    )
-    return url
+    next_url = os.path.join(user.url, server_name)
+
+    if 'upload_id' in query and 'path' in query:
+        upload_id = query["upload_id"][0]
+        upload_ids = spawner.user_options.get("upload_ids", {})
+        if upload_id in upload_ids:
+            rel_path = query.get("path", [""])[0]
+            next_url = os.path.join(
+                next_url,
+                profile.path_prefix.lstrip("/"),
+                "uploads",
+                upload_id, 
+                rel_path.lstrip("/")
+            )
+    
+    # If the server is stopped, forward to spawn flow
+    if not spawner.ready:
+        url = url_path_join(base_url, "spawn", user.escaped_name, server_name)
+
+        if next_url:
+            url = url_concat(url, {"next": next_url})
+
+        spawner.log.info(f"[NORTH user_redirect_hook] NOT READY, url: {url}")
+        return url
+ 
+    # If the server is already running
+    spawner.log.info(f"[NORTH user_redirect_hook] READY next_url={next_url}")
+    return next_url
 
 
 # Hub configuration
@@ -248,6 +505,8 @@ c.JupyterHub.logo_file = "/srv/jupyterhub/logo/nomad_logo.svg"
 
 c.JupyterHub.authenticator_class = "generic-oauth"
 c.JupyterHub.user_redirect_hook = user_redirect_hook
+c.Spawner.apply_user_options = apply_user_options
+
 
 c.Authenticator.allow_all = True
 c.Authenticator.auto_login = True
