@@ -10,6 +10,7 @@ from tornado.httputil import url_concat
 from urllib.parse import parse_qs
 from jinja2 import Environment, FileSystemLoader
 from jinjaMarkdown.markdownExtension import markdownExtension
+from typing import ClassVar
 
 from pydantic import BaseModel, Field
 from pydantic_settings import BaseSettings
@@ -159,43 +160,42 @@ class Config(BaseSettings):
     service_api_token: str = Field(
         "", description="API token for the Nomad service")
 
-
 config = Config()
+
+def get_profile_list(nomad_api_url):
+    api_url = f"{nomad_api_url}/north/tools/"
+    response = requests.get(api_url)
+    profile_list = []
+    for tool in response.json():
+        profile_list.append(
+            Profile(
+                slug=tool['name'],
+                display_name=tool['name'],
+                short_description=tool['short_description'],
+                description=tool['description'],
+                image=tool['image'],
+                default_url=tool['default_url'],
+                image_pull_policy=tool['image_pull_policy'],
+                cmd=tool['cmd'],
+                privileged=tool['privileged'],
+                seccomp_unconfined=tool['seccomp_unconfined'],
+                use_gpu=tool['use_gpu'],
+                path_prefix=tool['path_prefix'],
+                with_path=tool['with_path'],
+                file_extensions=tool['file_extensions'],
+                mount_path=tool['mount_path'],
+                icon=tool['icon'],
+                maintainer=[NORTHToolMaintainer(**m) for m in tool['maintainer']],
+                external_mounts=[NORTHExternalMount(**m) for m in tool['external_mounts']]  
+            )
+        )
+    return profile_list
 
 
 class NORTHSpawner(DockerSpawner):
 
-    nomad_api_url = config.nomad_api_url
-
-    @functools.cached_property
-    def profile_list(self):
-        api_url = f"{self.nomad_api_url}/north/tools/"
-        response = requests.get(api_url)
-        profile_list = []
-        for tool in response.json():
-            profile_list.append(
-                Profile(
-                    slug=tool['name'],
-                    display_name=tool['name'],
-                    short_description=tool['short_description'],
-                    description=tool['description'],
-                    image=tool['image'],
-                    default_url=tool['default_url'],
-                    image_pull_policy=tool['image_pull_policy'],
-                    cmd=tool['cmd'],
-                    privileged=tool['privileged'],
-                    seccomp_unconfined=tool['seccomp_unconfined'],
-                    use_gpu=tool['use_gpu'],
-                    path_prefix=tool['path_prefix'],
-                    with_path=tool['with_path'],
-                    file_extensions=tool['file_extensions'],
-                    mount_path=tool['mount_path'],
-                    icon=tool['icon'],
-                    maintainer=[NORTHToolMaintainer(**m) for m in tool['maintainer']],
-                    external_mounts=[NORTHExternalMount(**m) for m in tool['external_mounts']]  
-                )
-            )
-        return profile_list
+    nomad_api_url: ClassVar[str] = config.nomad_api_url
+    profile_list: ClassVar[list[Profile]] = get_profile_list(config.nomad_api_url)
 
     def _options_form_default(self):
         """Custom option form callable function to only show profiles
@@ -339,15 +339,23 @@ class NORTHSpawner(DockerSpawner):
             mounts = []
             upload_ids = {}
             for mount in response.json():
+                if 'upload_id' in mount and mount['upload_id'] is not None:
+                    upload_id = mount['upload_id']
+                    mount_path = profile.mount_path
+                    mounts.append({
+                        'type': 'bind',
+                        'source': mount['source'],
+                        'target': os.path.join(mount_path, upload_id),
+                        'read_only': mount['mode'] != 'rw'
+                    })
+                    upload_ids[upload_id] = mount['target'][len(mount_path):]
+            else:
                 mounts.append({
                     'type': 'bind',
                     'source': mount['source'],
                     'target': mount['target'],
                     'read_only': mount['mode'] != 'rw'
                 })
-                if 'upload_id' in mount and mount['upload_id'] is not None:
-                    mount_path = profile.mount_path or ''
-                    upload_ids[mount['upload_id']] = mount['target'][len(mount_path):]
 
             spawner.mounts = mounts
             spawner.user_options["upload_ids"] = upload_ids
@@ -442,31 +450,22 @@ async def user_redirect_hook(path, request, user, base_url):
             next_url = os.path.join(
                 next_url,
                 profile.path_prefix.lstrip("/"),
-                upload_ids[upload_id].lstrip("/"), 
+                upload_id, 
                 rel_path.lstrip("/")
             )
     
     # If the server is stopped, forward to spawn flow
-    
     if not spawner.ready:
-        url = url_path_join(
-            base_url,
-            "spawn",
-            user.escaped_name,
-            server_name
-        )
-        
+        url = url_path_join(base_url, "spawn", user.escaped_name, server_name)
+
         if next_url:
             url = url_concat(url, {"next": next_url})
 
         spawner.log.info(f"[NORTH user_redirect_hook] NOT READY, url: {url}")
-
         return url
  
     # If the server is already running
-    
     spawner.log.info(f"[NORTH user_redirect_hook] READY next_url={next_url}")
-
     return next_url
 
 
