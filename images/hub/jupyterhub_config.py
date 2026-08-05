@@ -450,6 +450,7 @@ async def user_redirect_hook(path, request, user, base_url):
             next_url = os.path.join(
                 next_url,
                 profile.path_prefix.lstrip("/"),
+                "uploads",
                 upload_id, 
                 rel_path.lstrip("/")
             )
