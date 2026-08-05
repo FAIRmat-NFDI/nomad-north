@@ -345,17 +345,17 @@ class NORTHSpawner(DockerSpawner):
                     mounts.append({
                         'type': 'bind',
                         'source': mount['source'],
-                        'target': os.path.join(mount_path, upload_id),
+                        'target': os.path.join(mount_path, 'uploads', upload_id),
                         'read_only': mount['mode'] != 'rw'
                     })
                     upload_ids[upload_id] = mount['target'][len(mount_path):]
-            else:
-                mounts.append({
-                    'type': 'bind',
-                    'source': mount['source'],
-                    'target': mount['target'],
-                    'read_only': mount['mode'] != 'rw'
-                })
+                else:
+                    mounts.append({
+                        'type': 'bind',
+                        'source': mount['source'],
+                        'target': mount['target'],
+                        'read_only': mount['mode'] != 'rw'
+                    })
 
             spawner.mounts = mounts
             spawner.user_options["upload_ids"] = upload_ids
