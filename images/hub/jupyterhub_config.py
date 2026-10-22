@@ -137,16 +137,16 @@ Profile.model_rebuild()
 
 class Config(BaseSettings):
     nomad_api_url: str = Field(
-        "http://app:8000/nomad-oasis/api/v1", description="URL of the Nomad API")
+        "http://app:8000/backend/api/v1", description="URL of the Nomad API")
     hub_port: int = Field(9000, description="Port for the JupyterHub")
-    base_url: str = Field("/nomad-oasis/north/",
+    base_url: str = Field("/backend/north/",
                           description="Base URL for the JupyterHub")
     hub_ip: str = Field("0.0.0.0", description="IP address for the JupyterHub")
     hub_connect_ip: str = Field(
         "north", description="IP address for the JupyterHub to connect to")
     admin_users: list[str] = Field([], description="List of admin users")
     oauth_callback_url: str = Field(
-        "http://localhost/nomad-oasis/north/hub/oauth_callback", description="OAuth callback URL")
+        "http://localhost/backend/north/hub/oauth_callback", description="OAuth callback URL")
     keycloak_url: str = Field(
         "https://nomad-lab.eu/fairdi/keycloak/auth", description="Base URL for Keycloak")
     keycloak_realm: str = Field(
