@@ -18,9 +18,6 @@ from jupyterhub.utils import url_path_join
 # Not /srv/jupyterhub, which z2jh mounts the hub database volume on.
 north_dir = "/usr/local/share/north"
 
-# Seconds to wait for the NOMAD API before failing a request.
-nomad_api_timeout = float(os.environ.get("NOMAD_API_TIMEOUT", "10"))
-
 
 class Profile(BaseModel):
     display_name: str = Field(..., description="Name of the profile")
@@ -29,47 +26,55 @@ class Profile(BaseModel):
     slug: str = Field(..., description="Slug for the profile")
     image: str = Field(..., description="Docker image for the profile")
     default_url: str = Field(
-        "/lab", description="Default URL to open when the profile is started")
+        "/lab", description="Default URL to open when the profile is started"
+    )
 
 
 class NORTHKubeSpawner(KubeSpawner):
-
     nomad_api_url = os.environ.get(
-        "NOMAD_API_URL", "http://nomad-oasis-app:8000/backend/api/v1")
+        "NOMAD_API_URL", "http://nomad-oasis-app:8000/backend/api/v1"
+    )
+
+    # Seconds to wait for the NOMAD API before failing a request.
+    nomad_api_timeout = float(os.environ.get("NOMAD_API_TIMEOUT", 10))
+
+    nomad_app_token_expires_in = int(
+        os.environ.get("NOMAD_ACCESS_TOKEN_EXPIRES_IN", 24 * 3600)
+    )
 
     # Not `profile_list`, which is KubeSpawner's own profile mechanism.
     @functools.cached_property
     def north_profiles(self):
         api_url = f"{self.nomad_api_url}/north/tools/"
-        response = requests.get(api_url, timeout=nomad_api_timeout)
+        response = requests.get(api_url, timeout=self.nomad_api_timeout)
         response.raise_for_status()
         profile_list = []
         for tool in response.json():
             profile_list.append(
                 Profile(
-                    display_name=tool['name'],
-                    description=tool['short_description'],
-                    slug=tool['name'],
-                    image=tool['image'],
-                    default_url=tool['default_url']
+                    display_name=tool["name"],
+                    description=tool["short_description"],
+                    slug=tool["name"],
+                    image=tool["image"],
+                    default_url=tool["default_url"],
                 )
             )
         return profile_list
 
-    @default('options_form')
+    @default("options_form")
     def _options_form_default(self):
         """Custom option form callable function to only show profiles
         for the default server and not for the named servers.
         """
 
         if not self.north_profiles:
-            return ''
+            return ""
 
         # Do not show forms for named servers
         if self.name:
-            return ''
+            return ""
 
-        loader = FileSystemLoader(f'{north_dir}/templates')
+        loader = FileSystemLoader(f"{north_dir}/templates")
         env = Environment(loader=loader)
 
         # Provides the `markdown` filter for the profile descriptions.
@@ -123,18 +128,17 @@ class NORTHKubeSpawner(KubeSpawner):
 
         raise ValueError(
             "No such profile: %s. Options include: %s"
-            % (slug, ', '.join(p.slug for p in self.north_profiles))
+            % (slug, ", ".join(p.slug for p in self.north_profiles))
         )
 
     @staticmethod
     def auth_state_hook(spawner, auth_state):
-
         if not spawner.name:
             return
 
         spawner.user_options["access_token"] = auth_state["access_token"]
 
-    @default('pre_spawn_hook')
+    @default("pre_spawn_hook")
     def _pre_spawn_hook_default(self):
         return north_pre_spawn_hook
 
@@ -152,11 +156,13 @@ async def north_pre_spawn_hook(spawner):
 
     api_url = f"{spawner.nomad_api_url}/north/mounts/{spawner.name}"
     api_headers = {
-        "Authorization": f"Bearer {spawner.user_options.get('access_token')}"}
+        "Authorization": f"Bearer {spawner.user_options.get('access_token')}"
+    }
 
     # requests is blocking; keep the hub's event loop free while NOMAD answers.
     response = await asyncio.to_thread(
-        requests.get, api_url, headers=api_headers, timeout=nomad_api_timeout)
+        requests.get, api_url, headers=api_headers, timeout=spawner.nomad_api_timeout
+    )
     response.raise_for_status()
 
     # NOMAD's mount sources are paths on the node, e.g. fs.north_home_external.
@@ -165,23 +171,50 @@ async def north_pre_spawn_hook(spawner):
     upload_ids = {}
     for i, mount in enumerate(response.json()):
         name = f"north-{i}"
-        volumes.append({"name": name, "hostPath": {"path": mount['source']}})
-        volume_mounts.append({
-            "name": name,
-            "mountPath": mount['target'],
-            "readOnly": mount['mode'] != 'rw',
-        })
-        if 'upload_id' in mount and mount['upload_id'] is not None:
-            upload_ids[mount['upload_id']] = mount['target']
+        volumes.append({"name": name, "hostPath": {"path": mount["source"]}})
+        volume_mounts.append(
+            {
+                "name": name,
+                "mountPath": mount["target"],
+                "readOnly": mount["mode"] != "rw",
+            }
+        )
+        if "upload_id" in mount and mount["upload_id"] is not None:
+            upload_ids[mount["upload_id"]] = mount["target"]
 
     # The spawner object is reused when a server is started again, so replace
     # the mounts of a previous spawn instead of adding to them.
     def without_north(items):
-        return [item for item in items if not item['name'].startswith('north-')]
+        return [item for item in items if not item["name"].startswith("north-")]
 
     spawner.volumes = [*without_north(spawner.volumes), *volumes]
     spawner.volume_mounts = [*without_north(spawner.volume_mounts), *volume_mounts]
     spawner.user_options["upload_ids"] = upload_ids
+
+    # Access user identity or dynamic context
+    username = spawner.user.name
+
+    api_url = f"{spawner.nomad_api_url}/auth/app_token"
+    api_headers = {
+        "Authorization": f"Bearer {spawner.user_options.get('access_token')}"
+    }
+
+    # requests is blocking; keep the hub's event loop free while NOMAD answers.
+    response = await asyncio.to_thread(
+        requests.get,
+        api_url,
+        params={"expires_in": spawner.nomad_app_token_expires_in},
+        headers=api_headers,
+        timeout=spawner.nomad_api_timeout,
+    )
+    response.raise_for_status()
+
+    access_token = response.json().get("app_token")
+
+    # Set standard pod environment variables
+    spawner.environment["NOMAD_CLIENT_USER"] = username
+    spawner.environment["NOMAD_CLIENT_ACCESS_TOKEN"] = access_token
+    spawner.environment["NOMAD_CLIENT_URL"] = spawner.nomad_api_url
 
 
 async def user_redirect_hook(path, request, user, base_url):
@@ -218,23 +251,25 @@ c.Authenticator.refresh_pre_spawn = True  # noqa: F821
 
 # Users do not have permission to read their own auth state by default, but auth_state is where the access_token is stored.
 # https://oauthenticator.readthedocs.io/en/latest/how-to/refresh.html#refreshing-tokens-from-user-sessions
-c.JupyterHub.load_roles.extend([  # noqa: F821
-    {
-        "name": "user",
-        "scopes": [
-            "self",
-            "admin:auth_state!user",
-        ],
-    },
-    {
-        "name": "server",
-        "scopes": [
-            "users:activity!user",
-            "access:servers!server",
-            "admin:auth_state!user",
-        ],
-    },
-])
+c.JupyterHub.load_roles.extend(
+    [  # noqa: F821
+        {
+            "name": "user",
+            "scopes": [
+                "self",
+                "admin:auth_state!user",
+            ],
+        },
+        {
+            "name": "server",
+            "scopes": [
+                "users:activity!user",
+                "access:servers!server",
+                "admin:auth_state!user",
+            ],
+        },
+    ]
+)
 
 # NOMAD manages the tools through the hub API as this service: it reads and
 # creates users, starts and stops their named servers and follows the spawn
