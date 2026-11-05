@@ -6,32 +6,37 @@ name: Docker
 # documentation.
 
 on:
-  schedule:
-    - cron: '17 1 * * *'
   push:
-    branches: [ "main" ]
-    # Publish semver tags as releases.
-    tags: [ 'v*.*.*' ]
+    # Publish images when a release tag (vX.Y.Z or X.Y.Z) is pushed.
+    tags:
+      - 'v[0-9]+.[0-9]+.[0-9]+'
+      - '[0-9]+.[0-9]+.[0-9]+'
+  # On PRs to main, only check that the images build. Nothing is pushed.
   pull_request:
     branches: [ "main" ]
 
-env:
-  # Use docker.io for Docker Hub if empty
-  REGISTRY: ghcr.io
+# Cancel outdated runs when new commits are pushed to the same PR.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
+env:
+  REGISTRY: ghcr.io
 
 jobs:
   build:
-
+    name: Build ${{ matrix.name }}
     runs-on: ubuntu-latest
     strategy:
       fail-fast: false
       matrix:
         include:
-          - context: ./images/hub/
-            image: ${{ github.repository }}
-          - context: ./images/k8s/
-            image: ${{ github.repository }}-k8s
+          # Published as ghcr.io/<owner>/nomad-north:X.Y.Z
+          - name: nomad-north
+            context: ./images/hub/
+          # Published as ghcr.io/<owner>/nomad-north-k8s:X.Y.Z
+          - name: nomad-north-k8s
+            context: ./images/k8s/
     permissions:
       contents: read
       packages: write
@@ -46,7 +51,7 @@ jobs:
       # Install the cosign tool except on PR
       # https://github.com/sigstore/cosign-installer
       - name: Install cosign
-        # if: github.event_name != 'pull_request'
+        if: github.event_name != 'pull_request'
         uses: sigstore/cosign-installer@59acb6260d9c0ba8f4a2f9d9b48431a222b68e20 #v3.5.0
         with:
           cosign-release: 'v2.2.4'
@@ -60,7 +65,7 @@ jobs:
       # Login against a Docker registry except on PR
       # https://github.com/docker/login-action
       - name: Log into registry ${{ env.REGISTRY }}
-        # if: github.event_name != 'pull_request'
+        if: github.event_name != 'pull_request'
         uses: docker/login-action@343f7c4344506bcbf9b4de18042ae17996df046d # v3.0.0
         with:
           registry: ${{ env.REGISTRY }}
@@ -73,26 +78,27 @@ jobs:
         id: meta
         uses: docker/metadata-action@96383f45573cb7f253c731d3b3ab81c87ef81934 # v5.0.0
         with:
-          images: ${{ env.REGISTRY }}/${{ matrix.image }}
-          # git tag v2.0.0 -> image tag 2.0.0 (semver strips the leading "v")
+          # The image name is lowercased by the action (GHCR requires it).
+          images: ${{ env.REGISTRY }}/${{ github.repository_owner }}/${{ matrix.name }}
+          # Git tag v2.0.0 -> image tag 2.0.0 (semver strips the leading "v").
+          # Only the exact version is published, no "latest" tag.
+          flavor: |
+            latest=false
           tags: |
-            type=schedule
-            type=ref,event=branch
-            type=ref,event=pr
             type=semver,pattern={{version}}
 
-      # Build and push Docker image with Buildx (don't push on PR)
+      # Build the image, and push it only on tag pushes (never on PRs)
       # https://github.com/docker/build-push-action
       - name: Build and push Docker image
         id: build-and-push
         uses: docker/build-push-action@0565240e2d4ab88bba5387d719585280857ece09 # v5.0.0
         with:
           context: ${{ matrix.context }}
-          push: true
+          push: ${{ github.event_name != 'pull_request' }}
           tags: ${{ steps.meta.outputs.tags }}
           labels: ${{ steps.meta.outputs.labels }}
-          cache-from: type=gha,scope=${{ matrix.context }}
-          cache-to: type=gha,mode=max,scope=${{ matrix.context }}
+          cache-from: type=gha,scope=${{ matrix.name }}
+          cache-to: type=gha,mode=max,scope=${{ matrix.name }}
 
       # Sign the resulting Docker image digest except on PRs.
       # This will only write to the public Rekor transparency log when the Docker
@@ -100,7 +106,7 @@ jobs:
       # transparency data even for private images, pass --force to cosign below.
       # https://github.com/sigstore/cosign
       - name: Sign the published Docker image
-        # if: ${{ github.event_name != 'pull_request' }}
+        if: ${{ github.event_name != 'pull_request' }}
         env:
           # https://docs.github.com/en/actions/security-guides/security-hardening-for-github-actions#using-an-intermediate-environment-variable
           TAGS: ${{ steps.meta.outputs.tags }}

@@ -137,16 +137,16 @@ Profile.model_rebuild()
 
 class Config(BaseSettings):
     nomad_api_url: str = Field(
-        "http://app:8000/nomad-oasis/api/v1", description="URL of the Nomad API")
+        "http://app:8000/backend/api/v1", description="URL of the Nomad API")
     hub_port: int = Field(9000, description="Port for the JupyterHub")
-    base_url: str = Field("/nomad-oasis/north/",
+    base_url: str = Field("/backend/north/",
                           description="Base URL for the JupyterHub")
     hub_ip: str = Field("0.0.0.0", description="IP address for the JupyterHub")
     hub_connect_ip: str = Field(
         "north", description="IP address for the JupyterHub to connect to")
     admin_users: list[str] = Field([], description="List of admin users")
     oauth_callback_url: str = Field(
-        "http://localhost/nomad-oasis/north/hub/oauth_callback", description="OAuth callback URL")
+        "http://localhost/backend/north/hub/oauth_callback", description="OAuth callback URL")
     keycloak_url: str = Field(
         "https://nomad-lab.eu/fairdi/keycloak/auth", description="Base URL for Keycloak")
     keycloak_realm: str = Field(
@@ -159,6 +159,8 @@ class Config(BaseSettings):
         "nomad_oasis_network", description="Docker network name")
     service_api_token: str = Field(
         "", description="API token for the Nomad service")
+    nomad_app_token_expires_in: int = Field(
+        24 * 3600, description="Lifetime in seconds of the NOMAD app token passed to tools")
 
 config = Config()
 
@@ -359,7 +361,25 @@ class NORTHSpawner(DockerSpawner):
 
             spawner.mounts = mounts
             spawner.user_options["upload_ids"] = upload_ids
-            
+
+            # Pass a NOMAD app token to the tool, e.g. for API calls from notebooks.
+            api_url = f"{spawner.nomad_api_url}/auth/app_token"
+            response = requests.get(
+                api_url,
+                params={"expires_in": config.nomad_app_token_expires_in},
+                headers=api_headers,
+            )
+            response.raise_for_status()
+
+            spawner.environment["NOMAD_CLIENT_USER"] = spawner.user.name
+            spawner.environment["NOMAD_CLIENT_ACCESS_TOKEN"] = response.json()["app_token"]
+            # nomad.client appends /v1 to config.client.url itself.
+            spawner.environment["NOMAD_CLIENT_URL"] = spawner.nomad_api_url.removesuffix("/v1")
+
+            spawner.log.info(
+                f"[NORTH pre_spawn_hook] NOMAD_CLIENT_* env set for user: {spawner.user.name}"
+            )
+
             spawner.log.info(
                 f"[NORTH pre_spawn_hook] Profile: '{profile.slug}' | "
                 f"Resolved default_url: '{spawner.default_url}'"
