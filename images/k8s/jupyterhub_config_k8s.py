@@ -214,7 +214,8 @@ async def north_pre_spawn_hook(spawner):
         # Set standard pod environment variables
         spawner.environment["NOMAD_CLIENT_USER"] = username
         spawner.environment["NOMAD_CLIENT_ACCESS_TOKEN"] = app_token
-        spawner.environment["NOMAD_CLIENT_URL"] = spawner.nomad_api_url
+        # nomad.client appends /v1 to config.client.url itself.
+        spawner.environment["NOMAD_CLIENT_URL"] = spawner.nomad_api_url.removesuffix("/v1")
 
 
 async def user_redirect_hook(path, request, user, base_url):
