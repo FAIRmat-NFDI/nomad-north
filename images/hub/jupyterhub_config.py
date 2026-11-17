@@ -276,16 +276,12 @@ class NORTHSpawner(DockerSpawner):
 
         spawner.user_options["access_token"] = auth_state["access_token"]
 
-        spawner.log.info(
-            f"[NORTH auth_state_hook] access_token: {spawner.user_options['access_token']}"
-        )
-
 
     @default('pre_spawn_hook')
     def _pre_spawn_hook(spawner):
 
         spawner.log.info(
-            f"[NORTH pre_spawn_hook] spawner.name: {spawner.name} user_options: {spawner.user_options}"
+            f"[NORTH pre_spawn_hook] spawner.name: {spawner.name}"
         )
 
         if spawner.name:
@@ -456,9 +452,9 @@ async def user_redirect_hook(path, request, user, base_url):
     spawner = user.spawners.get(server_name) or user.get_spawner(server_name)
     profile = spawner._get_profile(spawner.name)
 
-    spawner.log.info(f"[NORTH user_redirect_hook] path={path} query={query} base_url={base_url} user_url={user.url}")
+    spawner.log.info(f"[NORTH user_redirect_hook] path={path} base_url={base_url} user_url={user.url}")
     spawner.log.info(f"[NORTH user_redirect_hook] path={path} server_name={server_name} profil={profile}")
-    spawner.log.info(f"[NORTH user_redirect_hook] path={path} server_name={server_name} spawner.ready={spawner.ready} spawner.active={spawner.active} spawner.pending={spawner.pending} spawner.user_options={spawner.user_options}")
+    spawner.log.info(f"[NORTH user_redirect_hook] path={path} server_name={server_name} spawner.ready={spawner.ready} spawner.active={spawner.active} spawner.pending={spawner.pending}")
 
     next_url = os.path.join(user.url, server_name)
 
