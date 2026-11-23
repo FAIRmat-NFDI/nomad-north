@@ -68,8 +68,13 @@ class Profile(BaseModel):
         ),
     )
     image_pull_policy: str = Field(
-        'always', 
-        description='The image pull policy used in k8s deployments.'
+        'Always',
+        description=(
+            'The image pull policy, as set by NOMAD: "Always", "IfNotPresent" '
+            'or "Never". DockerSpawner treats these values case-insensitively. '
+            '"Always" pulls the image on every spawn and fails for images that '
+            'only exist locally.'
+        ),
     )
     cmd: str | None = Field(
         None, 
@@ -132,6 +137,14 @@ class Profile(BaseModel):
         [], description='Additional mounts to be added to tool containers.'
     )
 
+# JupyterHub loads this file with traitlets' PyFileConfigLoader, which compiles it
+# with `from __future__ import annotations` inherited from traitlets itself. All
+# annotations above are therefore strings, and pydantic cannot resolve names like
+# `ReadMode` because the classes' `__module__` is `builtins`. `model_rebuild()`
+# resolves them from the namespace of the calling frame (this file). Every model
+# that is instantiated directly must be rebuilt, not only the outermost one.
+NORTHToolMaintainer.model_rebuild()
+NORTHExternalMount.model_rebuild()
 Profile.model_rebuild()
 
 
