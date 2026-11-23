@@ -7,6 +7,8 @@ name: Docker
 
 on:
   push:
+    # Publish images with the "develop" tag on every push (e.g. merge) to develop.
+    branches: [ "develop" ]
     # Publish images when a release tag (vX.Y.Z or X.Y.Z) is pushed.
     tags:
       - 'v[0-9]+.[0-9]+.[0-9]+'
@@ -81,13 +83,15 @@ jobs:
           # The image name is lowercased by the action (GHCR requires it).
           images: ${{ env.REGISTRY }}/${{ github.repository_owner }}/${{ matrix.name }}
           # Git tag v2.0.0 -> image tag 2.0.0 (semver strips the leading "v").
-          # Only the exact version is published, no "latest" tag.
+          # Push to develop branch -> image tag "develop".
+          # No "latest" tag is published.
           flavor: |
             latest=false
           tags: |
             type=semver,pattern={{version}}
+            type=raw,value=develop,enable=${{ github.ref == 'refs/heads/develop' }}
 
-      # Build the image, and push it only on tag pushes (never on PRs)
+      # Build the image, and push it only on tag/develop pushes (never on PRs)
       # https://github.com/docker/build-push-action
       - name: Build and push Docker image
         id: build-and-push
