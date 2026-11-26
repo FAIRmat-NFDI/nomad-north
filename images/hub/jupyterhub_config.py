@@ -7,7 +7,8 @@ from enum import Enum
 from traitlets import default
 from tornado import web
 from tornado.httputil import url_concat
-from urllib.parse import parse_qs
+from tornado.log import app_log
+from urllib.parse import parse_qsl, quote
 from jinja2 import Environment, FileSystemLoader
 from jinjaMarkdown.markdownExtension import markdownExtension
 from typing import ClassVar
@@ -102,17 +103,19 @@ class Profile(BaseModel):
     with_path: bool = Field(
         False,
         description=(
-            'Whether the path of the file or directory the tool was launched '
-            'from is forwarded to the tool so it can open or deep-link to that '
-            'item. When enabled, the launcher passes the item path to the tool: '
-            'in the old hub it is appended to the tool URL via `path_prefix` '
-            '(e.g. `lab/tree/<path>` for JupyterLab); in the new hub it is sent '
-            'as `upload_id`/`path` query parameters for a handler inside the '
-            'tool image to consume. Only meaningful for tools that can open a '
-            'file from a URL (e.g. JupyterLab); set to False for tools that '
-            'cannot, such as desktop (noVNC) apps like VESTA or FIJI. This does '
-            'NOT control whether the tool is offered for a file in the NOMAD '
-            'UI. That is determined solely by `file_extensions`.'
+            'Whether the tool is opened at the project, folder or file it was '
+            'launched from. When enabled with the new hub, the NOMAD UI opens '
+            '`<north_base>/user-redirect/<tool>/<path_prefix>/projects/<project_id>/<path>`, '
+            "which the hub forwards to the user's server for this tool, starting "
+            'it first if needed; projects are mounted at '
+            '`<mount_path>/projects/<project_id>`. With the old hub, the UI opens '
+            '`<path_prefix>/<upload_mount_dir>/<path>` instead. When disabled, '
+            'the tool is opened at its `default_url`. Only meaningful for tools '
+            'that can open a file from a URL (e.g. JupyterLab, where `path_prefix` '
+            'is "lab/tree"); set to False for tools that cannot, such as desktop '
+            '(noVNC) apps like VESTA or FIJI. This does NOT control whether the '
+            'tool is offered for a file in the NOMAD UI. That is determined '
+            'solely by `file_extensions`.'
         ),
     )
     file_extensions: list[str] = Field(
@@ -122,8 +125,8 @@ class Profile(BaseModel):
     mount_path: str = Field(
         "/home/jovyan",
         description=(
-            'The path in the container where uploads and work directories will be mounted, '
-            'e.g. /home/jovyan for Jupyter containers.'
+            'The path in the container where the projects and the work directory '
+            'are mounted, e.g. /home/jovyan for Jupyter containers.'
         ),
     )
     icon: str | None = Field(
@@ -347,26 +350,19 @@ class NORTHSpawner(DockerSpawner):
 
             response = requests.get(api_url, headers=api_headers)
 
+            # NOMAD decides where things are mounted, e.g. projects at
+            # <mount_path>/projects/<project_id>, so use its targets as they are.
             mounts = []
             upload_ids = {}
             for mount in response.json():
-                if 'upload_id' in mount and mount['upload_id'] is not None:
-                    upload_id = mount['upload_id']
-                    mount_path = profile.mount_path
-                    mounts.append({
-                        'type': 'bind',
-                        'source': mount['source'],
-                        'target': os.path.join(mount_path, 'uploads', upload_id),
-                        'read_only': mount['mode'] != 'rw'
-                    })
-                    upload_ids[upload_id] = mount['target'][len(mount_path):]
-                else:
-                    mounts.append({
-                        'type': 'bind',
-                        'source': mount['source'],
-                        'target': mount['target'],
-                        'read_only': mount['mode'] != 'rw'
-                    })
+                mounts.append({
+                    'type': 'bind',
+                    'source': mount['source'],
+                    'target': mount['target'],
+                    'read_only': mount['mode'] != 'rw'
+                })
+                if mount.get('upload_id') is not None:
+                    upload_ids[mount['upload_id']] = mount['target']
 
             spawner.mounts = mounts
             spawner.user_options["upload_ids"] = upload_ids
@@ -453,50 +449,31 @@ def apply_user_options(spawner, user_options):
 
 
 async def user_redirect_hook(path, request, user, base_url):
-    """Changing the the behavior of /user-redirect/ url
-    Instead of using default server the first path must be
-    the name of the named server
+    """Redirect `/hub/user-redirect/<server_name>/<path>` to `<path>` on the
+    user's named server `<server_name>`, starting the server first if needed.
+
+    NOMAD links to a project, folder or file in a tool with a fully formed path,
+    e.g. `/hub/user-redirect/jupyter/lab/tree/projects/<project_id>/<path>`.
+    The hub only forwards the path (and query) to the tool; how a project, folder
+    or file maps to a URL is defined by the tool (see `Profile.with_path`).
     """
-    # Get name of the server from the path and the query parameters
     server_name = path.split("/", 1)[0]
-    query = parse_qs(request.query)
 
-    # Get or instantiate the spawner for this server
-    spawner = user.spawners.get(server_name) or user.get_spawner(server_name)
-    profile = spawner._get_profile(spawner.name)
+    # Tornado has already decoded the path; encode it again for the redirect.
+    user_url = url_path_join(user.url, quote(path))
+    if request.query:
+        user_url = url_concat(
+            user_url, parse_qsl(request.query, keep_blank_values=True)
+        )
 
-    spawner.log.info(f"[NORTH user_redirect_hook] path={path} base_url={base_url} user_url={user.url}")
-    spawner.log.info(f"[NORTH user_redirect_hook] path={path} server_name={server_name} profil={profile}")
-    spawner.log.info(f"[NORTH user_redirect_hook] path={path} server_name={server_name} spawner.ready={spawner.ready} spawner.active={spawner.active} spawner.pending={spawner.pending}")
-
-    next_url = os.path.join(user.url, server_name)
-
-    if 'upload_id' in query and 'path' in query:
-        upload_id = query["upload_id"][0]
-        upload_ids = spawner.user_options.get("upload_ids", {})
-        if upload_id in upload_ids:
-            rel_path = query.get("path", [""])[0]
-            next_url = os.path.join(
-                next_url,
-                profile.path_prefix.lstrip("/"),
-                "uploads",
-                upload_id, 
-                rel_path.lstrip("/")
-            )
-    
-    # If the server is stopped, forward to spawn flow
-    if not spawner.ready:
-        url = url_path_join(base_url, "spawn", user.escaped_name, server_name)
-
-        if next_url:
-            url = url_concat(url, {"next": next_url})
-
-        spawner.log.info(f"[NORTH user_redirect_hook] NOT READY, url: {url}")
-        return url
- 
-    # If the server is already running
-    spawner.log.info(f"[NORTH user_redirect_hook] READY next_url={next_url}")
-    return next_url
+    # The spawn handler starts the server if it is not running, waits until it
+    # is ready and then redirects to `next`.
+    url = url_concat(
+        url_path_join(base_url, "hub", "spawn", user.escaped_name, server_name),
+        {"next": user_url},
+    )
+    app_log.info(f"[NORTH user_redirect_hook] path={path} url={url}")
+    return url
 
 
 # Hub configuration
