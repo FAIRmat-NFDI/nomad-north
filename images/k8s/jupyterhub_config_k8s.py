@@ -7,7 +7,8 @@ import requests
 from traitlets import default
 from tornado import web
 from tornado.httputil import url_concat
-from urllib.parse import parse_qsl
+from tornado.log import app_log
+from urllib.parse import parse_qsl, quote
 from jinja2 import Environment, FileSystemLoader
 from jinjaMarkdown.markdownExtension import markdownExtension
 from pydantic import BaseModel, Field
@@ -219,26 +220,31 @@ async def north_pre_spawn_hook(spawner):
 
 
 async def user_redirect_hook(path, request, user, base_url):
-    """Changing the the behavior of /user-redirect/ url
-    Instead of using default server the first path must be
-    the name of the named server
+    """Redirect `/hub/user-redirect/<server_name>/<path>` to `<path>` on the
+    user's named server `<server_name>`, starting the server first if needed.
+
+    NOMAD links to a project, folder or file in a tool with a fully formed path,
+    e.g. `/hub/user-redirect/jupyter/lab/tree/projects/<project_id>/<path>`.
+    The hub only forwards the path (and query) to the tool; how a project, folder
+    or file maps to a URL is defined by the tool (see `with_path` in NOMAD's
+    NORTH tool config).
     """
     server_name = path.split("/", 1)[0]
 
-    user_url = url_path_join(user.url, path)
-
+    # Tornado has already decoded the path; encode it again for the redirect.
+    user_url = url_path_join(user.url, quote(path))
     if request.query:
-        user_url = url_concat(user_url, parse_qsl(request.query))
+        user_url = url_concat(
+            user_url, parse_qsl(request.query, keep_blank_values=True)
+        )
 
+    # The spawn handler starts the server if it is not running, waits until it
+    # is ready and then redirects to `next`.
     url = url_concat(
-        url_path_join(
-            base_url,
-            "spawn",
-            user.escaped_name,
-            server_name,
-        ),
+        url_path_join(base_url, "hub", "spawn", user.escaped_name, server_name),
         {"next": user_url},
     )
+    app_log.info(f"[NORTH user_redirect_hook] path={path} url={url}")
     return url
 
 
